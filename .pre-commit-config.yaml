@@ -1,0 +1,90 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+        exclude_types: ["image", "jupyter"]
+      - id: check-yaml
+      - id: check-json
+        exclude: '\.jsonc$'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: mixed-line-ending
+      - id: requirements-txt-fixer
+
+  - repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+      - id: black
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v23.1.0
+    hooks:
+      - id: clang-format
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+      - id: cmake-lint
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell
+        # Abbreviations in identifiers (nd, parms, strat, ser) are almost all
+        # false positives, so restrict this to prose. "hsa" is ignored because
+        # codespell reads the ROCm acronym HSA as a misspelling of "has".
+        types_or: [markdown, rst, plain-text]
+        args: [-L, hsa]
+
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm
+          - mdformat-black
+          - mdformat-frontmatter
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.6
+    hooks:
+      - id: forbid-tabs
+        # Tabs are syntactically required in make recipes.
+        exclude: |
+          (?x)^(
+            (.*/)?[Mm]akefile(\..*)?|
+            (.*/)?GNUmakefile|
+            .*\.(mk|go)|
+            (.*/)?CODEOWNERS|
+            (.*/)?\.gitmodules
+          )$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        args: [-shellcheck=, -ignore, 'label ".+" is unknown']
+
+  - repo: local
+    hooks:
+      - id: test-file-naming
+        name: Enforce *_test.py naming for tests
+        entry: "Test files must use the *_test.py naming convention, not test_*.py"
+        language: fail
+        files: '(^|/)tests/(.*/)?test_[^/]*\.py$'
