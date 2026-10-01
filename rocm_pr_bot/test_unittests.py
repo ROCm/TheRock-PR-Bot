@@ -24,7 +24,7 @@ from unittest import mock
 # The bot code lives in .github/therock_pr_bot/. Make it importable and record
 # where the shipped policy.yml lives, regardless of the working directory.
 THIS_DIR = Path(__file__).resolve().parent
-BOT_DIR = THIS_DIR.parent / ".github" / "therock_pr_bot"
+BOT_DIR = THIS_DIR.parent / ".github" / "rocm_pr_bot"
 POLICY_PATH = BOT_DIR / "policy.yml"
 sys.path.insert(0, str(BOT_DIR))
 

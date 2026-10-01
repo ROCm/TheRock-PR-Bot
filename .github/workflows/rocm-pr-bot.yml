@@ -19,10 +19,10 @@ on:
         type: string
         default: ROCm/THeRock-PR-Bot
       bot_ref:
-        description: "Branch/tag/SHA of the central bot code"
+        description: "Branch of the central bot code (main or develop)"
         required: false
         type: string
-        default: samathew121/centralized_pr_bot
+        default: main
     secrets:
       THEROCK_PR_BOT_APPID:
         required: false
@@ -43,7 +43,7 @@ on:
   #   https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target
   #   https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
   pull_request_target:
-    branches: [samathew121/centralized_pr_bot]
+    branches: [main , develop]
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
   # Re-run when another check finishes so the results table flips from
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ${{ inputs.bot_repository || 'ROCm/THeRock-PR-Bot' }}
-          ref: ${{ inputs.bot_ref || 'samathew121/centralized_pr_bot' }}
+          ref: ${{ inputs.bot_ref || 'main' }}
           path: pr-bot
           persist-credentials: false
 
