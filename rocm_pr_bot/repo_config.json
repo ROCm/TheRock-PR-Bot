@@ -1,0 +1,10 @@
+{
+  "default": {
+    "faq_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md",
+    "override_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md#-wish-to-override-the-policy-process-and-get-unblocked"
+  },
+  "TheRock-Infra": {
+    "faq_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md",
+    "override_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md#-wish-to-override-the-policy-process-and-get-unblocked"
+  }
+}
