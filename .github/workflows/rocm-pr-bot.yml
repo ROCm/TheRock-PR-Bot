@@ -42,7 +42,7 @@ on:
   # Refs:
   #   https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target
   #   https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
     branches: [main , develop]
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
@@ -110,6 +110,16 @@ jobs:
         with:
           app-id: ${{ secrets.THEROCK_PR_BOT_APPID }}
           private-key: ${{ secrets.THEROCK_PRBOT_KEY }}
+          # Scope the token to the minimum the bot needs instead of inheriting
+          # the full installation permissions:
+          #   pull-requests: write -> post / update the results table comment
+          #   issues: write        -> add / remove "Not ready to Review" label
+          #   contents: read       -> read repo metadata
+          #   checks: read         -> read required check-run conclusions
+          permission-pull-requests: write
+          permission-issues: write
+          permission-contents: read
+          permission-checks: read
 
       # SECURITY: only fixed, trusted dependencies — never installed from the PR.
       - name: Install deps
