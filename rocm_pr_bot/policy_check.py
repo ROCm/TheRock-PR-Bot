@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Main script to policy-check PRs and report results in a comment. This is the
 core of the bot's logic: it loads policy.yml, validates the pull request
@@ -6,19 +7,17 @@ required CI checks, posts a single results-table comment, and manages the
 "Not ready to Review" label.
 """
 
-#!/usr/bin/env python3
-
 import argparse
 import fnmatch
 import json
 import os
 import re
 import sys
-import time
 import urllib.parse
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import requests
 import yaml
@@ -42,8 +41,8 @@ DEFAULT_REPO_KEY = "default"
 
 
 def load_repo_links(
-    repo_name: Optional[str], config_path: Path = REPO_CONFIG_PATH
-) -> Tuple[str, str]:
+    repo_name: str | None, config_path: Path = REPO_CONFIG_PATH
+) -> tuple[str, str]:
     """Return (faq_url, override_url) for `repo_name` from repo_config.json.
 
     Matching is case-insensitive. Falls back to the 'default' entry when the
@@ -122,27 +121,27 @@ class CheckResult:
     name: str
     icon: str
     passed: bool
-    details: List[str]
+    details: list[str]
     pending: bool = False
     wip: bool = False
     tbe: bool = False
     warn: bool = False
-    note: Optional[str] = None
+    note: str | None = None
 
 
 @dataclass(frozen=True)
 class Policy:
     description_min_length: int
-    description_issue_patterns: List[re.Pattern[str]]
-    description_checklist_patterns: List[re.Pattern[str]]
+    description_issue_patterns: list[re.Pattern[str]]
+    description_checklist_patterns: list[re.Pattern[str]]
     block_draft: bool
-    forbidden_paths: List[str]
-    unit_test_code_extensions: List[str]
-    unit_test_patterns: List[str]
-    unit_test_exempt_paths: List[str]
-    bump_bot_authors: List[str]
-    required_checks: List[str]
-    precommit_failure_comment: Optional[FailureComment]
+    forbidden_paths: list[str]
+    unit_test_code_extensions: list[str]
+    unit_test_patterns: list[str]
+    unit_test_exempt_paths: list[str]
+    bump_bot_authors: list[str]
+    required_checks: list[str]
+    precommit_failure_comment: FailureComment | None
 
 
 def load_policy(policy_path: Path) -> Policy:
@@ -154,7 +153,7 @@ def load_policy(policy_path: Path) -> Policy:
     """
     raw = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError("policy.yml must be a mapping/object")
+        raise TypeError("policy.yml must be a mapping/object")
 
     pr = raw.get("pr", {}) or {}
     diff = raw.get("diff", {}) or {}
@@ -215,7 +214,7 @@ def load_policy(policy_path: Path) -> Policy:
     )
 
 
-def gh_headers(token: str) -> Dict[str, str]:
+def gh_headers(token: str) -> dict[str, str]:
     """Build the standard GitHub REST API request headers for the given token."""
     return {
         "Accept": "application/vnd.github+json",
@@ -236,7 +235,7 @@ def gh_get(url: str, token: str) -> Any:
     return r.json()
 
 
-def gh_post(url: str, token: str, payload: Dict[str, Any]) -> Any:
+def gh_post(url: str, token: str, payload: dict[str, Any]) -> Any:
     """Perform an authenticated POST with a JSON body and return parsed JSON.
 
     Raises RuntimeError on any non-2xx response.
@@ -247,7 +246,7 @@ def gh_post(url: str, token: str, payload: Dict[str, Any]) -> Any:
     return r.json()
 
 
-def gh_patch(url: str, token: str, payload: Dict[str, Any]) -> Any:
+def gh_patch(url: str, token: str, payload: dict[str, Any]) -> Any:
     """Perform an authenticated PATCH with a JSON body and return parsed JSON.
 
     Raises RuntimeError on any non-2xx response.
@@ -258,19 +257,19 @@ def gh_patch(url: str, token: str, payload: Dict[str, Any]) -> Any:
     return r.json()
 
 
-def get_pr(owner: str, repo: str, pr_number: int, token: str) -> Dict[str, Any]:
+def get_pr(owner: str, repo: str, pr_number: int, token: str) -> dict[str, Any]:
     """Fetch a single pull request's metadata (title, body, head/base, etc.)."""
     data = gh_get(
         f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}", token
     )
     if not isinstance(data, dict):
-        raise RuntimeError("Unexpected PR payload")
+        raise TypeError("Unexpected PR payload")
     return data
 
 
 def iter_pr_files(
     owner: str, repo: str, pr_number: int, token: str
-) -> Iterable[Dict[str, Any]]:
+) -> Iterable[dict[str, Any]]:
     """Yield every file object changed in the PR, transparently paginating.
 
     Each yielded dict includes keys such as `filename`, `status`, `additions`,
@@ -283,7 +282,7 @@ def iter_pr_files(
             token,
         )
         if not isinstance(data, list):
-            raise RuntimeError("Unexpected PR files payload")
+            raise TypeError("Unexpected PR files payload")
         if not data:
             return
         for item in data:
@@ -292,21 +291,21 @@ def iter_pr_files(
         page += 1
 
 
-def get_check_runs(owner: str, repo: str, sha: str, token: str) -> List[Dict[str, Any]]:
+def get_check_runs(owner: str, repo: str, sha: str, token: str) -> list[dict[str, Any]]:
     """Return the list of check-runs associated with a commit SHA."""
     data = gh_get(
         f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100",
         token,
     )
     if not isinstance(data, dict):
-        raise RuntimeError("Unexpected check-runs payload")
+        raise TypeError("Unexpected check-runs payload")
     runs = data.get("check_runs", [])
     return runs if isinstance(runs, list) else []
 
 
 def resolve_pr_number_from_sha(
     owner: str, repo: str, sha: str, token: str
-) -> Optional[int]:
+) -> int | None:
     """Find the open PR whose HEAD is `sha`.
 
     On `check_run` / `check_suite` events GitHub frequently returns an empty
@@ -342,7 +341,7 @@ def resolve_pr_number_from_sha(
     return int(first.get("number")) if isinstance(first, dict) else None
 
 
-def ensure_pr_not_draft(policy: Policy, is_draft: bool, errors: List[str]) -> None:
+def ensure_pr_not_draft(policy: Policy, is_draft: bool, errors: list[str]) -> None:
     """Block draft PRs when `policy.block_draft` is enabled.
 
     Appends a message to `errors` if the PR is still a draft.
@@ -361,7 +360,7 @@ def _strip_markdown_comments(text: str) -> str:
     return re.sub(r"<!--.*?(?:-->|$)", "", text, flags=re.DOTALL)
 
 
-def ensure_pr_description(policy: Policy, body: str, errors: List[str]) -> None:
+def ensure_pr_description(policy: Policy, body: str, errors: list[str]) -> None:
     """Validate the PR description (minimum length, JIRA/ISSUE reference, checklist).
 
     Appends a structured message to `errors` if the body is too short, does
@@ -428,9 +427,7 @@ def _matches_forbidden(filename: str, pattern: str) -> bool:
     if fnmatch.fnmatch(filename, pattern):
         return True
     # Allow '**/<x>' patterns to also match root-level files (e.g. '.env').
-    if pattern.startswith("**/") and fnmatch.fnmatch(filename, pattern[3:]):
-        return True
-    return False
+    return pattern.startswith("**/") and fnmatch.fnmatch(filename, pattern[3:])
 
 
 def _is_test_file(filename: str, patterns: Iterable[str]) -> bool:
@@ -452,7 +449,7 @@ def _is_test_file(filename: str, patterns: Iterable[str]) -> bool:
 
 
 def ensure_no_forbidden_files(
-    policy: Policy, pr_files: Iterable[Dict[str, Any]], errors: List[str]
+    policy: Policy, pr_files: Iterable[dict[str, Any]], errors: list[str]
 ) -> None:
     """Flag any added/modified file matching a forbidden path pattern.
 
@@ -476,7 +473,7 @@ def ensure_no_forbidden_files(
 
 
 def ensure_unit_tests(
-    policy: Policy, pr_files: Iterable[Dict[str, Any]], errors: List[str]
+    policy: Policy, pr_files: Iterable[dict[str, Any]], errors: list[str]
 ) -> None:
     """
     Require a unit test when real source code changes.
@@ -489,7 +486,7 @@ def ensure_unit_tests(
     if not policy.unit_test_code_extensions:
         return
 
-    code_files: List[str] = []
+    code_files: list[str] = []
     has_test = False
 
     for f in pr_files:
@@ -506,7 +503,6 @@ def ensure_unit_tests(
         ):
             continue
 
-        base = Path(filename).name
         ext = Path(filename).suffix.lower()
 
         # A test file satisfies the requirement.
@@ -529,7 +525,7 @@ def ensure_unit_tests(
         )
 
 
-def pr_has_code_files(policy: Policy, pr_files: Iterable[Dict[str, Any]]) -> bool:
+def pr_has_code_files(policy: Policy, pr_files: Iterable[dict[str, Any]]) -> bool:
     """True if the PR changes at least one real source/code file.
 
     Doc/config files (.md, .txt, .yml, .ini, ...), exempt paths, and test files
@@ -546,7 +542,6 @@ def pr_has_code_files(policy: Policy, pr_files: Iterable[Dict[str, Any]]) -> boo
             _matches_forbidden(filename, pat) for pat in policy.unit_test_exempt_paths
         ):
             continue
-        base = Path(filename).name
         ext = Path(filename).suffix.lower()
         if _is_test_file(filename, policy.unit_test_patterns):
             continue
@@ -557,8 +552,8 @@ def pr_has_code_files(policy: Policy, pr_files: Iterable[Dict[str, Any]]) -> boo
 
 def summarize_required_checks(
     policy: Policy,
-    check_runs: List[Dict[str, Any]],
-) -> Tuple[List[str], List[str], Dict[str, str]]:
+    check_runs: list[dict[str, Any]],
+) -> tuple[list[str], list[str], dict[str, str]]:
     """Summarise the state of the required check-runs.
 
     Returns:
@@ -566,13 +561,13 @@ def summarize_required_checks(
       - failing: required checks that concluded not-success
       - conc_by_name: name -> conclusion (string; 'null' if none)
     """
-    by_name: Dict[str, Dict[str, Any]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
     for r in check_runs:
         name = r.get("name")
         if isinstance(name, str):
             by_name[name] = r
 
-    conc_by_name: Dict[str, str] = {}
+    conc_by_name: dict[str, str] = {}
     for name, r in by_name.items():
         conc = r.get("conclusion")
         conc_by_name[name] = str(conc) if conc is not None else "null"
@@ -580,7 +575,7 @@ def summarize_required_checks(
     missing = [n for n in policy.required_checks if n not in by_name]
 
     ok = {"success", "neutral", "skipped"}
-    failing: List[str] = []
+    failing: list[str] = []
     for n in policy.required_checks:
         r = by_name.get(n)
         if not r:
@@ -661,11 +656,11 @@ def update_comment_if_exists(
 
 
 def build_policy_table_comment(
-    results: List[CheckResult],
+    results: list[CheckResult],
     marker: str,
     ready: bool = False,
-    note: Optional[str] = None,
-    repo_name: Optional[str] = None,
+    note: str | None = None,
+    repo_name: str | None = None,
 ) -> str:
     """Render the results as a single Markdown comment with a status table.
 
@@ -675,14 +670,14 @@ def build_policy_table_comment(
     optional banner (used for the bump-PR special case).
     """
 
-    def _format_details(details: List[str]) -> str:
+    def _format_details(details: list[str]) -> str:
         """Join a check's detail parts into one table-cell-safe string.
 
         Each part's non-empty lines are joined with <br>, parts are separated by
         a divider, and any literal '|' is escaped as '&#124;' so it does not end
         the Markdown table cell early (which would truncate the text).
         """
-        blocks: List[str] = []
+        blocks: list[str] = []
         for part in details:
             lines = [ln.strip() for ln in part.splitlines() if ln.strip()]
             if lines:
@@ -780,9 +775,9 @@ def build_policy_table_comment(
 
 def build_check_results(
     policy: Policy,
-    check_runs: List[Dict[str, Any]],
+    check_runs: list[dict[str, Any]],
     include_self: bool = False,
-) -> List[CheckResult]:
+) -> list[CheckResult]:
     """Turn required check-runs into table rows (so they appear in one table).
 
     Required CI workflows (e.g. pre-commit, and any security workflow such as
@@ -798,7 +793,7 @@ def build_check_results(
         if isinstance(r, dict) and isinstance(r.get("name"), str)
     }
 
-    def status_of(name: str) -> Tuple[bool, bool, Optional[str]]:
+    def status_of(name: str) -> tuple[bool, bool, str | None]:
         """Return (passed, pending, conclusion) for one check-run."""
         r = by_name.get(name)
         if not r:
@@ -808,11 +803,11 @@ def build_check_results(
             return False, True, None
         return str(conc) in ok, False, str(conc)
 
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
     for name in policy.required_checks:
         passed, pending, conc = status_of(name)
         if pending:
-            details: List[str] = ["⏳ Still running…"]
+            details: list[str] = ["⏳ Still running…"]
         elif passed:
             details = []
         else:
@@ -830,7 +825,7 @@ def maybe_comment_precommit_failure(
     pr_number: int,
     token: str,
     policy: Policy,
-    check_runs: List[Dict[str, Any]],
+    check_runs: list[dict[str, Any]],
 ) -> None:
     """Post the configured pre-commit failure help comment, if applicable.
 
@@ -918,9 +913,7 @@ def is_bump_pr(policy: Policy, author_login: str) -> bool:
 
     def norm(s: str) -> str:
         s = s.strip().lower()
-        if s.endswith("[bot]"):
-            s = s[: -len("[bot]")]
-        return s
+        return s.removesuffix("[bot]")
 
     target = norm(author_login)
     if not target:
@@ -941,10 +934,10 @@ def pr_wants_skip(body: str) -> bool:
     )
 
 
-def build_bump_pr_results(policy: Policy) -> List[CheckResult]:
+def build_bump_pr_results(policy: Policy) -> list[CheckResult]:
     """All-pass table rows for an automated dependency bump PR."""
     bump_note = "Bump PR — check auto-approved (automated dependency update)"
-    rows: List[CheckResult] = [
+    rows: list[CheckResult] = [
         CheckResult("PR Description", "📝", True, [], note=bump_note),
         CheckResult("Draft PR", "🚫", True, [], note=bump_note),
         CheckResult("Forbidden Files", "⛔", True, [], note=bump_note),
@@ -958,7 +951,7 @@ def build_bump_pr_results(policy: Policy) -> List[CheckResult]:
     return rows
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Entry point: evaluate all policies and report results on the PR.
 
     Reads PR context from the environment, runs every policy check, posts the
@@ -1090,14 +1083,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     pr_files = list(iter_pr_files(owner, repo, pr_number, token))  # type: ignore[arg-type]
 
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
 
     # Each check appends its failure messages to `check_errors`; an empty list
     # means the check passed. We reset it before every check.
     # NOTE: all policies are enforced for BOTH same-repo PRs and fork PRs.
     # `pull_request_target` gives us secret access (required for posting PR
     # comments) for forks, so there is no reason to skip the policy checks.
-    check_errors: List[str] = []
+    check_errors: list[str] = []
 
     check_errors = []
     ensure_pr_description(policy, body, check_errors)
