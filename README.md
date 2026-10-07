@@ -50,8 +50,8 @@ Please follow [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## Maintainers
 
-| Role           | Contact         |
-| -------------- | --------------- |
+| Role           | Contact               |
+| -------------- | --------------------- |
 | Technical Lead | TODO: Add maintainers |
 
 ## License

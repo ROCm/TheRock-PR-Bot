@@ -18,18 +18,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest import mock
 
 # The bot code lives in .github/therock_pr_bot/. Make it importable and record
 # where the shipped policy.yml lives, regardless of the working directory.
 THIS_DIR = Path(__file__).resolve().parent
-BOT_DIR = THIS_DIR.parent / ".github" / "rocm_pr_bot"
+BOT_DIR = THIS_DIR.parent / "rocm_pr_bot"
 POLICY_PATH = BOT_DIR / "policy.yml"
 sys.path.insert(0, str(BOT_DIR))
 
-import policy_check as pc  # noqa: E402
-
+import policy_check as pc
 
 # ----------------------------- helpers ---------------------------------------
 
@@ -39,8 +38,10 @@ _ISSUE_PATTERNS = [
     # JIRA/ISSUE ID on a separate line (blank lines + trailing spaces allowed).
     r"(?im)^[ \t]*JIRA[ \t]+ID[ \t]*\r?\n[ \t\r\n]*([A-Z][A-Z0-9]+-\d+)",
     r"(?im)^[ \t]*ISSUE[ \t]+ID[ \t]*\r?\n[ \t\r\n]*([A-Z][A-Z0-9]+-\d+|\d+)",
-    r"(?im)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*"
-    r"(?:[A-Za-z0-9._\-]+\/[A-Za-z0-9._\-]+)?#\d+",
+    (
+        r"(?im)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*"
+        r"(?:[A-Za-z0-9._\-]+\/[A-Za-z0-9._\-]+)?#\d+"
+    ),
     # Bare GitHub issue reference, e.g. #123
     r"(?m)(?:^|\s)#\d+\b",
     # GitHub issue URL
@@ -59,14 +60,14 @@ def make_policy(**overrides: Any) -> pc.Policy:
     if the shipped config changes. Note: title and branch-name policies have
     been removed — Policy no longer carries any title/branch fields.
     """
-    defaults: Dict[str, Any] = dict(
-        description_min_length=30,
-        description_issue_patterns=[re.compile(p) for p in _ISSUE_PATTERNS],
-        description_checklist_patterns=[re.compile(p) for p in _CHECKLIST_PATTERNS],
-        block_draft=True,
-        forbidden_paths=["**/*.pem", "**/.env", "**/id_rsa"],
-        unit_test_code_extensions=[".py", ".cpp"],
-        unit_test_patterns=[
+    defaults: dict[str, Any] = {
+        "description_min_length": 30,
+        "description_issue_patterns": [re.compile(p) for p in _ISSUE_PATTERNS],
+        "description_checklist_patterns": [re.compile(p) for p in _CHECKLIST_PATTERNS],
+        "block_draft": True,
+        "forbidden_paths": ["**/*.pem", "**/.env", "**/id_rsa"],
+        "unit_test_code_extensions": [".py", ".cpp"],
+        "unit_test_patterns": [
             "test_*",
             "testing_*",
             "*_test.*",
@@ -75,11 +76,11 @@ def make_policy(**overrides: Any) -> pc.Policy:
             "Test*",
             "**/test/gtest/**",
         ],
-        unit_test_exempt_paths=[],
-        bump_bot_authors=["assistant-librarian", "systems-assistant", "dependabot"],
-        required_checks=["pre-commit"],
-        precommit_failure_comment=None,
-    )
+        "unit_test_exempt_paths": [],
+        "bump_bot_authors": ["assistant-librarian", "systems-assistant", "dependabot"],
+        "required_checks": ["pre-commit"],
+        "precommit_failure_comment": None,
+    }
     defaults.update(overrides)
     return pc.Policy(**defaults)
 
@@ -89,8 +90,8 @@ def make_file(
     status: str = "modified",
     additions: int = 0,
     deletions: int = 0,
-    changes: Optional[int] = None,
-) -> Dict[str, Any]:
+    changes: int | None = None,
+) -> dict[str, Any]:
     return {
         "filename": filename,
         "status": status,
@@ -106,14 +107,14 @@ def make_file(
 class DescriptionTests(unittest.TestCase):
     def test_too_short(self) -> None:
         policy = make_policy()
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_description(policy, "short", e)
         self.assertTrue(any("too short" in x for x in e))
 
     def test_missing_issue_reference(self) -> None:
         # No checklist patterns so only the reference check fires.
         policy = make_policy(description_checklist_patterns=[])
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_description(policy, "A long enough description with no ref.", e)
         self.assertTrue(any("must reference a JIRA ID" in x for x in e))
 
@@ -135,7 +136,7 @@ Some visible text between the comments.
             multiple_comments,
         ]:
             with self.subTest(body=body):
-                e: List[str] = []
+                e: list[str] = []
                 pc.ensure_pr_description(policy, body, e)
                 self.assertTrue(any("must reference a JIRA ID" in x for x in e))
 
@@ -166,7 +167,7 @@ Some visible text between the comments.
             "ISSUE ID  \n\nAIRUNTIME-2352",  # trailing spaces + blank line
         ]:
             with self.subTest(body=body):
-                e: List[str] = []
+                e: list[str] = []
                 pc.ensure_pr_description(policy, body, e)
                 self.assertEqual(e, [])
 
@@ -187,7 +188,7 @@ Some visible text between the comments.
             "This change fixes the bug.\nFixes #4321\n",
         ]:
             with self.subTest(body=body):
-                e: List[str] = []
+                e: list[str] = []
                 pc.ensure_pr_description(policy, body, e)
                 self.assertEqual(e, [])
 
@@ -202,28 +203,28 @@ Some visible text between the comments.
             "See https://github.com/ROCm/TheRock/issues/6043",
         ]:
             with self.subTest(body=body):
-                e: List[str] = []
+                e: list[str] = []
                 pc.ensure_pr_description(policy, body, e)
                 self.assertEqual(e, [])
 
     def test_reference_inside_larger_body(self) -> None:
         policy = make_policy(description_checklist_patterns=[])
         body = "This change fixes the parser.\n\nISSUE ID : TESTUTO-3334\n"
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_description(policy, body, e)
         self.assertEqual(e, [])
 
     def test_checklist_ticked_passes(self) -> None:
         policy = make_policy(description_min_length=0, description_issue_patterns=[])
         body = "- [x] Look over the contributing guidelines at https://..."
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_description(policy, body, e)
         self.assertEqual(e, [])
 
     def test_checklist_unticked_fails(self) -> None:
         policy = make_policy(description_min_length=0, description_issue_patterns=[])
         body = "- [ ] Look over the contributing guidelines at https://..."
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_description(policy, body, e)
         self.assertTrue(any("Checklist" in x or "checklist" in x for x in e))
 
@@ -235,8 +236,8 @@ class ForbiddenFileTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = make_policy()
 
-    def _errs(self, files: List[Dict[str, Any]]) -> List[str]:
-        e: List[str] = []
+    def _errs(self, files: list[dict[str, Any]]) -> list[str]:
+        e: list[str] = []
         pc.ensure_no_forbidden_files(self.policy, files, e)
         return e
 
@@ -276,8 +277,8 @@ class UnitTestRuleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = make_policy()
 
-    def _errs(self, files: List[Dict[str, Any]]) -> List[str]:
-        e: List[str] = []
+    def _errs(self, files: list[dict[str, Any]]) -> list[str]:
+        e: list[str] = []
         pc.ensure_unit_tests(self.policy, files, e)
         return e
 
@@ -344,7 +345,7 @@ class UnitTestRuleTests(unittest.TestCase):
                 "projects/hip-tests/**",
             ]
         )
-        errs: List[str] = []
+        errs: list[str] = []
 
         # A .cpp file under projects/hip-tests/ satisfies the requirement even
         # though its basename ('atomicAdd.cpp') matches no name-based pattern.
@@ -365,7 +366,7 @@ class UnitTestRuleTests(unittest.TestCase):
                 "projects/hip-tests/**",
             ]
         )
-        errs: List[str] = []
+        errs: list[str] = []
         files = [make_file("projects/clr/hipamd/src/hip_memory.cpp")]
         pc.ensure_unit_tests(policy, files, errs)
         self.assertTrue(errs)
@@ -388,13 +389,13 @@ class UnitTestRuleTests(unittest.TestCase):
 class DraftAndBumpTests(unittest.TestCase):
     def test_draft_blocked_when_enabled(self) -> None:
         policy = make_policy(block_draft=True)
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_not_draft(policy, True, e)
         self.assertTrue(e)
 
     def test_draft_allowed_when_not_draft(self) -> None:
         policy = make_policy(block_draft=True)
-        e: List[str] = []
+        e: list[str] = []
         pc.ensure_pr_not_draft(policy, False, e)
         self.assertEqual(e, [])
 
@@ -448,11 +449,11 @@ class IntegrationBlobTests(unittest.TestCase):
         self.policy = make_policy()
 
     def _evaluate(
-        self, *, title: str, body: str, files: List[Dict[str, Any]]
-    ) -> Dict[str, List[str]]:
-        out: Dict[str, List[str]] = {}
+        self, *, title: str, body: str, files: list[dict[str, Any]]
+    ) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
 
-        e: List[str] = []
+        e: list[str] = []
 
         pc.ensure_pr_description(self.policy, body, e)
         out["title_desc"] = e
@@ -637,7 +638,7 @@ class BuildCheckResultRowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = make_policy(required_checks=["pre-commit"])
 
-    def _row(self, runs: List[Dict[str, Any]]) -> pc.CheckResult:
+    def _row(self, runs: list[dict[str, Any]]) -> pc.CheckResult:
         rows = pc.build_check_results(self.policy, runs)
         return next(r for r in rows if r.name == "pre-commit")
 
@@ -736,10 +737,6 @@ class NewPolicyCheckTests(unittest.TestCase):
 
     def test_table_rendering_order(self) -> None:
         # Test the order of rows in the rendered policy table.
-        policy = make_policy(
-            required_checks=["pre-commit"],
-            description_issue_patterns=[re.compile(p) for p in _ISSUE_PATTERNS],
-        )
         results = [
             pc.CheckResult("Unit Test", "🧪", passed=True),
             pc.CheckResult("Forbidden Files", "⛔", passed=False, warn=True),
@@ -777,14 +774,14 @@ class NewPolicyCheckTests(unittest.TestCase):
 
 
 class RepoConfigTests(unittest.TestCase):
-    def _write(self, data: Dict[str, Any]) -> Path:
-        tmp = tempfile.NamedTemporaryFile(
+    def _write(self, data: dict[str, Any]) -> Path:
+        with tempfile.NamedTemporaryFile(
             "w", suffix=".json", delete=False, encoding="utf-8"
-        )
-        json.dump(data, tmp)
-        tmp.close()
-        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
-        return Path(tmp.name)
+        ) as tmp:
+            json.dump(data, tmp)
+            name = tmp.name
+        self.addCleanup(lambda: Path(name).unlink(missing_ok=True))
+        return Path(name)
 
     def setUp(self) -> None:
         self.cfg = self._write(
@@ -809,9 +806,7 @@ class RepoConfigTests(unittest.TestCase):
         self.assertEqual(pc.load_repo_links(None, self.cfg), ("d_faq", "d_ovr"))
 
     def test_missing_file(self) -> None:
-        self.assertEqual(
-            pc.load_repo_links("x", Path("does_not_exist.json")), ("", "")
-        )
+        self.assertEqual(pc.load_repo_links("x", Path("does_not_exist.json")), ("", ""))
 
     def test_shipped_config_has_infra(self) -> None:
         if not pc.REPO_CONFIG_PATH.exists():
@@ -820,9 +815,7 @@ class RepoConfigTests(unittest.TestCase):
         self.assertTrue(faq and ovr)
 
     def test_table_uses_repo_links(self) -> None:
-        with mock.patch.object(
-            pc, "load_repo_links", return_value=("FAQ_X", "OVR_X")
-        ):
+        with mock.patch.object(pc, "load_repo_links", return_value=("FAQ_X", "OVR_X")):
             body = pc.build_policy_table_comment(
                 [pc.CheckResult("Unit Test", "🧪", True, [])],
                 "<!-- t -->",
