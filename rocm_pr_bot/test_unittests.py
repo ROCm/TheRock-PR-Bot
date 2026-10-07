@@ -30,7 +30,6 @@ sys.path.insert(0, str(BOT_DIR))
 
 import policy_check as pc
 
-
 # ----------------------------- helpers ---------------------------------------
 
 _ISSUE_PATTERNS = [
@@ -807,9 +806,7 @@ class RepoConfigTests(unittest.TestCase):
         self.assertEqual(pc.load_repo_links(None, self.cfg), ("d_faq", "d_ovr"))
 
     def test_missing_file(self) -> None:
-        self.assertEqual(
-            pc.load_repo_links("x", Path("does_not_exist.json")), ("", "")
-        )
+        self.assertEqual(pc.load_repo_links("x", Path("does_not_exist.json")), ("", ""))
 
     def test_shipped_config_has_infra(self) -> None:
         if not pc.REPO_CONFIG_PATH.exists():
@@ -818,9 +815,7 @@ class RepoConfigTests(unittest.TestCase):
         self.assertTrue(faq and ovr)
 
     def test_table_uses_repo_links(self) -> None:
-        with mock.patch.object(
-            pc, "load_repo_links", return_value=("FAQ_X", "OVR_X")
-        ):
+        with mock.patch.object(pc, "load_repo_links", return_value=("FAQ_X", "OVR_X")):
             body = pc.build_policy_table_comment(
                 [pc.CheckResult("Unit Test", "🧪", True, [])],
                 "<!-- t -->",

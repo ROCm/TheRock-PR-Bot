@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Main script to policy-check PRs and report results in a comment. This is the
 core of the bot's logic: it loads policy.yml, validates the pull request
@@ -762,9 +761,7 @@ def build_policy_table_comment(
         else ""
     )
     override_link = (
-        f"\n\n🙋 **[Wish to Override Policy?]({override_url})**"
-        if override_url
-        else ""
+        f"\n\n🙋 **[Wish to Override Policy?]({override_url})**" if override_url else ""
     )
 
     note_block = f"\n\n{note}" if note else ""
