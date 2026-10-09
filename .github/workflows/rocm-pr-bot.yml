@@ -152,6 +152,7 @@ jobs:
         run: python -m pip install --upgrade pip requests pyyaml
 
       - name: Enforce policy
+        working-directory: rocm_pr_bot/rocm_pr_bot
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           HAS_GITHUB_APP_TOKEN: ${{ steps.app-secrets.outputs.available }}
@@ -159,9 +160,8 @@ jobs:
           MUTATE_PR: ${{ steps.app-secrets.outputs.available }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
-          # PR_NUMBER may be empty on check_run events — policy_check.py then
-          # resolves it from SHA (see resolve_pr_number_from_sha).
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha || github.event.check_run.head_sha }}
           REPO_NAME: ${{ inputs.repo_name || github.event.repository.name }}
-        run: python rocm_pr_bot/policy_check.py --repo_name "$REPO_NAME"
+        run: python policy_check.py --repo_name "$REPO_NAME"
+
