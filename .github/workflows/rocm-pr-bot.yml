@@ -83,12 +83,16 @@ jobs:
         env:
           APP_ID: ${{ secrets.THEROCK_PR_BOT_APPID }}
           APP_KEY: ${{ secrets.THEROCK_PRBOT_KEY }}
+          BOT_REPOSITORY: ${{ inputs.bot_repository || 'ROCm/TheRock-PR-Bot' }}
         run: |
           if [[ -n "$APP_ID" && -n "$APP_KEY" ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
           fi
+          # Actions expressions have no split(); derive owner/name here.
+          echo "bot_owner=${BOT_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "bot_repo=${BOT_REPOSITORY##*/}" >> "$GITHUB_OUTPUT"
 
       # The default GITHUB_TOKEN is scoped to the CALLER repo only, so it cannot
       # read the private bot repo. Mint an App token scoped to the bot repo
@@ -100,8 +104,8 @@ jobs:
         with:
           app-id: ${{ secrets.THEROCK_PR_BOT_APPID }}
           private-key: ${{ secrets.THEROCK_PRBOT_KEY }}
-          owner: ${{ split(inputs.bot_repository || 'ROCm/TheRock-PR-Bot', '/')[0] }}
-          repositories: ${{ split(inputs.bot_repository || 'ROCm/TheRock-PR-Bot', '/')[1] }}
+          owner: ${{ steps.app-secrets.outputs.bot_owner }}
+          repositories: ${{ steps.app-secrets.outputs.bot_repo }}
           permission-contents: read
 
       - name: Fail fast if bot repo is unreachable
