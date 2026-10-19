@@ -164,4 +164,3 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha || github.event.check_run.head_sha }}
           REPO_NAME: ${{ inputs.repo_name || github.event.repository.name }}
         run: python policy_check.py --repo_name "$REPO_NAME"
-

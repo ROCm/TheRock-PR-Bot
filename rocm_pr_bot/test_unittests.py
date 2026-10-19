@@ -771,7 +771,11 @@ class NewPolicyCheckTests(unittest.TestCase):
         # table must NOT claim "0 policy check(s) failed". It should render the
         # waiting heading/footer instead.
         result = pc.CheckResult(
-            "pre-commit", "🔎", passed=False, details=["⏳ Still running…"], pending=True
+            "pre-commit",
+            "🔎",
+            passed=False,
+            details=["⏳ Still running…"],
+            pending=True,
         )
         marker = "<!-- test -->"
         body = pc.build_policy_table_comment([result], marker, ready=False)
