@@ -689,12 +689,31 @@ def build_policy_table_comment(
     results = sorted(results, key=lambda r: order_index.get(r.name, len(TABLE_ORDER)))
 
     all_passed = all(r.passed for r in results)
+
+    # A row is a REAL failure only when it is not passed, not pending, and not a
+    # WIP/TBE/Warning placeholder. Pending rows (e.g. pre-commit still running)
+    # must NOT be rendered as failures.
+    failing_names = [
+        r.name
+        for r in results
+        if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
+    ]
+    failing_count = len(failing_names)
+    has_pending = any(
+        r.pending and not r.passed and not r.wip and not r.tbe and not r.warn
+        for r in results
+    )
+
     if all_passed and ready:
         heading = "### ✅ All Checks Passed — Ready for Review"
     elif all_passed:
         heading = "### ✅ All Policy Checks Passed"
-    else:
+    elif failing_count:
         heading = "### ❌ PR Check — Action Required"
+    elif has_pending:
+        heading = "### ⏳ PR Check — Waiting on Checks"
+    else:
+        heading = "### ✅ All Policy Checks Passed"
     rows = []
     for r in results:
         if r.warn:
@@ -723,18 +742,7 @@ def build_policy_table_comment(
         rows.append(f"| {r.icon} **{r.name}** | {status} | {detail} |")
 
     table = "| Check | Status | Details |\n" "|---|:---:|---|\n" + "\n".join(rows)
-    # WIP, TBE and Warning rows are neither pass nor fail — exclude from counts.
-    failing_count = sum(
-        1
-        for r in results
-        if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
-    )
-    if not all_passed:
-        failing_names = [
-            r.name
-            for r in results
-            if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
-        ]
+    if failing_count:
         failing_list = "\n".join(f"> - ❌ {n}" for n in failing_names)
         footer = (
             f"\n\n> ⚠️ **{failing_count} policy check(s) failed.** "
@@ -743,6 +751,12 @@ def build_policy_table_comment(
             f"{failing_list}\n>\n"
             f"> The **`{NOT_READY_LABEL}`** label was added to this PR. Once all "
             "policies pass, the label is removed automatically."
+        )
+    elif has_pending:
+        footer = (
+            "\n\n> ⏳ **Waiting on required checks to finish.** "
+            "No policy checks have failed — this table refreshes automatically "
+            "once the pending check(s) complete."
         )
     elif ready:
         footer = "\n\n> 🎉 All checks passed! This PR is ready for review."
@@ -964,20 +978,11 @@ def main(argv: list[str] | None = None) -> int:
         default=str(THIS_SCRIPT_DIR / "policy.yml"),
         help="Path to policy.yml (defaults to the file next to this script)",
     )
-    parser.add_argument(
-        "--timeout-seconds",
-        type=int,
-        default=300,
-        help="Max seconds to wait for required checks (e.g. pre-commit) to "
-        "conclude before rendering their last-known state. NEVER fails on "
-        "timeout — it only refreshes the results table.",
-    )
-    parser.add_argument(
-        "--poll-seconds",
-        type=int,
-        default=15,
-        help="Seconds between table refreshes while required checks run.",
-    )
+    # NOTE: the bot no longer waits/polls for required checks and therefore can
+    # NEVER fail with "Timed out waiting for required checks". It snapshots the
+    # check-run state ONCE and renders ⏳ Pending rows that refresh via the
+    # check_run:completed trigger. (The old --timeout-seconds/--poll-seconds
+    # args were removed because they were unused and misleading.)
     parser.add_argument(
         "--repo_name",
         default="",
@@ -1164,9 +1169,22 @@ def main(argv: list[str] | None = None) -> int:
     # "timeout" failure. They are shown as ⏳ Pending purely for information and
     # are enforced by branch protection (required status checks), not by us.
     runs = get_check_runs(owner=owner, repo=repo, sha=sha, token=token)  # type: ignore[arg-type]
-    _, failing, _ = summarize_required_checks(policy, runs)
+    missing, failing, _ = summarize_required_checks(policy, runs)
 
-    ready = not errors and not failing
+    # A required check is still "pending" when it is MISSING or present but has
+    # no conclusion yet (conclusion is None). The PR is only "ready" when there
+    # are no policy errors, nothing failing, AND nothing still pending —
+    # otherwise the table would flip to ✅ / "Ready for Review" while pre-commit
+    # is still ⏳ Pending. The check_run:completed trigger re-runs this script
+    # when pre-commit finishes, so the table refreshes to the final state.
+    pending_required = bool(missing) or any(
+        isinstance(r, dict)
+        and r.get("name") in policy.required_checks
+        and r.get("conclusion") is None
+        for r in runs
+    )
+
+    ready = not errors and not failing and not pending_required
     combined = results + build_check_results(policy, runs, include_self=ready)
 
     upsert_comment(

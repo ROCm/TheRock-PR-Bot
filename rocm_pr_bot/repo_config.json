@@ -6,5 +6,13 @@
   "TheRock-Infra": {
     "faq_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md",
     "override_url": "https://github.com/ROCm/TheRock-Infra/tree/main/docs/THE_ROCK_INFRA_FAQ.md#-wish-to-override-the-policy-process-and-get-unblocked"
+  },
+   "therock-ci-config": {
+    "faq_url": "https://github.com/ROCm/therock-ci-config/tree/main/docs/THE_ROCK_CI_CONFIG_FAQ.md",
+    "override_url": "https://github.com/ROCm/therock-ci-config/tree/main/docs/THE_ROCK_CI_CONFIG_FAQ.md#-wish-to-override-the-policy-process-and-get-unblocked"
+  },
+   "rocm-libraries": {
+    "faq_url": "https://github.com/ROCm/rocm-libraries/tree/main/docs/LIBRARIES_PR_BOT_FAQ.md",
+    "override_url": "https://github.com/ROCm/rocm-libraries/tree/main/docs/LIBRARIES_PR_BOT_FAQ.md#-wish-to-override-the-policy-process-and-get-unblocked"
   }
 }
