@@ -8,7 +8,6 @@ required CI checks, posts a single results-table comment, and manages the
 
 import argparse
 import fnmatch
-import json
 import os
 import re
 import sys
@@ -34,38 +33,8 @@ SKIP_TAG = "@skip-pr-bot"
 # https://github.com/ROCm/TheRock/blob/main/docs/development/style_guides/python_style_guide.md#dont-make-assumptions-about-the-current-working-directory
 THIS_SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Per-repo FAQ / override links. Key = repo name passed by the calling repo.
-REPO_CONFIG_PATH = THIS_SCRIPT_DIR / "repo_config.json"
-DEFAULT_REPO_KEY = "default"
-
-
-def load_repo_links(
-    repo_name: str | None, config_path: Path = REPO_CONFIG_PATH
-) -> tuple[str, str]:
-    """Return (faq_url, override_url) for `repo_name` from repo_config.json.
-
-    Matching is case-insensitive. Falls back to the 'default' entry when the
-    repo is not listed, and to empty strings if the file is missing/invalid.
-    """
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        print(f"⚠️  Could not load {config_path}: {exc}", file=sys.stderr)
-        return "", ""
-    if not isinstance(data, dict):
-        return "", ""
-
-    lookup = {str(k).lower(): v for k, v in data.items()}
-    entry = lookup.get((repo_name or "").strip().lower())
-    if not isinstance(entry, dict):
-        if repo_name:
-            print(
-                f"ℹ️  Repo '{repo_name}' not in {config_path.name}; using default.",
-            )
-        entry = lookup.get(DEFAULT_REPO_KEY, {})
-    if not isinstance(entry, dict):
-        return "", ""
-    return str(entry.get("faq_url") or ""), str(entry.get("override_url") or "")
+FAQ_URL = "https://github.com/ROCm/TheRock-PR-Bot/tree/main/docs/ROCM_PR_BOT_FAQ.md"
+OVERRIDE_URL = f"{FAQ_URL}#-wish-to-override-the-policy-process-and-get-unblocked"
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -659,7 +628,6 @@ def build_policy_table_comment(
     marker: str,
     ready: bool = False,
     note: str | None = None,
-    repo_name: str | None = None,
 ) -> str:
     """Render the results as a single Markdown comment with a status table.
 
@@ -763,20 +731,12 @@ def build_policy_table_comment(
     else:
         footer = "\n\n> 🎉 All policy checks passed!"
 
-    faq_url, override_url = load_repo_links(repo_name)
-
     faq_link = (
-        (
-            "\n\n📖 **Need help?** See the "
-            f"[Policy FAQ]({faq_url}) "
-            "for details on every check and how to fix failures."
-        )
-        if faq_url
-        else ""
+        "\n\n📖 **Need help?** See the "
+        f"[Policy FAQ]({FAQ_URL}) "
+        "for details on every check and how to fix failures."
     )
-    override_link = (
-        f"\n\n🙋 **[Wish to Override Policy?]({override_url})**" if override_url else ""
-    )
+    override_link = f"\n\n🙋 **[Wish to Override Policy?]({OVERRIDE_URL})**"
 
     note_block = f"\n\n{note}" if note else ""
     return (
@@ -983,18 +943,11 @@ def main(argv: list[str] | None = None) -> int:
     # check-run state ONCE and renders ⏳ Pending rows that refresh via the
     # check_run:completed trigger. (The old --timeout-seconds/--poll-seconds
     # args were removed because they were unused and misleading.)
-    parser.add_argument(
-        "--repo_name",
-        default="",
-        help="Calling repo name; key into repo_config.json for FAQ/override "
-        "links. Defaults to the REPO environment variable.",
-    )
     args = parser.parse_args(argv)
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     owner = os.environ.get("OWNER")
     repo = os.environ.get("REPO")
-    repo_name = (args.repo_name or "").strip() or repo
     pr_number_s = os.environ.get("PR_NUMBER")
     sha = os.environ.get("SHA")
 
@@ -1193,7 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
         pr_number,
         token,  # type: ignore[arg-type]
         marker,
-        build_policy_table_comment(combined, marker, ready=ready, repo_name=repo_name),
+        build_policy_table_comment(combined, marker, ready=ready),
     )
 
     # Label depends ONLY on our own policy (missing JIRA/ISSUE reference),
