@@ -688,52 +688,49 @@ class NewPolicyCheckTests(unittest.TestCase):
                 self.assertEqual(pc._strip_markdown_comments(body), expected)
 
     def test_matches_forbidden(self) -> None:
-        policy = make_policy(forbidden_paths=["**/secret.txt", "**/config/*.env"])
-        self.assertTrue(pc._matches_forbidden("config/.env", policy))
-        self.assertTrue(pc._matches_forbidden("path/to/secret.txt", policy))
-        self.assertFalse(pc._matches_forbidden("README.md", policy))
+        # _matches_forbidden(filename, pattern) takes a SINGLE glob pattern.
+        self.assertTrue(pc._matches_forbidden("config/.env", "**/config/*.env"))
+        self.assertTrue(pc._matches_forbidden("path/to/secret.txt", "**/secret.txt"))
+        # '**/<x>' also matches a root-level file.
+        self.assertTrue(pc._matches_forbidden(".env", "**/.env"))
+        self.assertFalse(pc._matches_forbidden("README.md", "**/secret.txt"))
 
     def test_is_test_file(self) -> None:
-        policy = make_policy(
-            unit_test_patterns=["test_*", "*_test.*", "**/test/gtest/**"]
+        # _is_test_file(filename, patterns) takes an iterable of glob patterns.
+        patterns = ["test_*", "*_test.*", "**/test/gtest/**"]
+        self.assertTrue(pc._is_test_file("test_module.py", patterns))
+        self.assertTrue(pc._is_test_file("src/module_test.py", patterns))
+        self.assertTrue(
+            pc._is_test_file("projects/miopen/test/gtest/unit_conv.cpp", patterns)
         )
-        self.assertTrue(pc._is_test_file("test_module.py", policy))
-        self.assertTrue(pc._is_test_file("src/module_test.py", policy))
-        self.assertFalse(pc._is_test_file("module.py", policy))
+        self.assertFalse(pc._is_test_file("module.py", patterns))
 
     def test_pr_has_code_files(self) -> None:
+        policy = make_policy()
         files_with_code = [make_file("src/app.py"), make_file("README.md")]
         files_without_code = [make_file("docs/CONTRIBUTING.md")]
 
-        self.assertTrue(pc.pr_has_code_files(files_with_code))
-        self.assertFalse(pc.pr_has_code_files(files_without_code))
+        # pr_has_code_files(policy, pr_files)
+        self.assertTrue(pc.pr_has_code_files(policy, files_with_code))
+        self.assertFalse(pc.pr_has_code_files(policy, files_without_code))
 
     def test_build_bump_pr_results(self) -> None:
-        policy = make_policy()
-        base = "refs/pull/123/merge"
-        head = "refs/pull/123/head"
-        sha = "abc123"
+        # build_bump_pr_results(policy) returns an all-pass set of rows for an
+        # automated dependency bump PR — including the configured required
+        # checks and the bot's own row.
+        policy = make_policy(required_checks=["pre-commit"])
+        results = pc.build_bump_pr_results(policy)
 
-        # Successful check run
-        runs = [{"name": "pre-commit", "conclusion": "success"}]
-        results = pc.build_bump_pr_results(policy, base, head, sha, runs)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].name, "pre-commit")
-        self.assertTrue(results[0].passed)
+        names = [r.name for r in results]
+        self.assertIn("PR Description", names)
+        self.assertIn("Forbidden Files", names)
+        self.assertIn("Unit Test", names)
+        self.assertIn("pre-commit", names)
+        self.assertIn("therock-pr-bot", names)
 
-        # Failing check run
-        runs = [{"name": "pre-commit", "conclusion": "failure"}]
-        results = pc.build_bump_pr_results(policy, base, head, sha, runs)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].name, "pre-commit")
-        self.assertFalse(results[0].passed)
-
-        # Pending check run
-        runs = [{"name": "pre-commit", "conclusion": None}]
-        results = pc.build_bump_pr_results(policy, base, head, sha, runs)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].name, "pre-commit")
-        self.assertTrue(results[0].pending)
+        # Every row passes and carries the bump note.
+        self.assertTrue(all(r.passed for r in results))
+        self.assertTrue(all(r.note for r in results))
 
     def test_table_rendering_order(self) -> None:
         # Test the order of rows in the rendered policy table.
@@ -742,7 +739,7 @@ class NewPolicyCheckTests(unittest.TestCase):
             pc.CheckResult("Forbidden Files", "⛔", passed=False, warn=True),
             pc.CheckResult("PR Description", "📜", passed=True),
         ]
-        marker = "<!-- test -->"
+        marker = "<!-- t -->"
         body = pc.build_policy_table_comment(results, marker, ready=True)
 
         # Check order: Unit Test -> Forbidden Files -> PR Description
@@ -768,6 +765,24 @@ class NewPolicyCheckTests(unittest.TestCase):
         # Notes should appear with the 'ℹ️' icon
         self.assertIn("ℹ️ Note", body)
         self.assertIn("This is a note.", body)
+
+    def test_table_rendering_pending_only_shows_waiting(self) -> None:
+        # When a required check is still pending (and nothing has failed), the
+        # table must NOT claim "0 policy check(s) failed". It should render the
+        # waiting heading/footer instead.
+        result = pc.CheckResult(
+            "pre-commit",
+            "🔎",
+            passed=False,
+            details=["⏳ Still running…"],
+            pending=True,
+        )
+        marker = "<!-- test -->"
+        body = pc.build_policy_table_comment([result], marker, ready=False)
+
+        self.assertIn("Waiting on Checks", body)
+        self.assertNotIn("0 policy check(s) failed", body)
+        self.assertNotIn("Action Required", body)
 
 
 # ----------------------------- repo config -----------------------------------

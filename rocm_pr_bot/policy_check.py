@@ -8,7 +8,6 @@ required CI checks, posts a single results-table comment, and manages the
 
 import argparse
 import fnmatch
-import json
 import os
 import re
 import sys
@@ -34,38 +33,8 @@ SKIP_TAG = "@skip-pr-bot"
 # https://github.com/ROCm/TheRock/blob/main/docs/development/style_guides/python_style_guide.md#dont-make-assumptions-about-the-current-working-directory
 THIS_SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Per-repo FAQ / override links. Key = repo name passed by the calling repo.
-REPO_CONFIG_PATH = THIS_SCRIPT_DIR / "repo_config.json"
-DEFAULT_REPO_KEY = "default"
-
-
-def load_repo_links(
-    repo_name: str | None, config_path: Path = REPO_CONFIG_PATH
-) -> tuple[str, str]:
-    """Return (faq_url, override_url) for `repo_name` from repo_config.json.
-
-    Matching is case-insensitive. Falls back to the 'default' entry when the
-    repo is not listed, and to empty strings if the file is missing/invalid.
-    """
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        print(f"⚠️  Could not load {config_path}: {exc}", file=sys.stderr)
-        return "", ""
-    if not isinstance(data, dict):
-        return "", ""
-
-    lookup = {str(k).lower(): v for k, v in data.items()}
-    entry = lookup.get((repo_name or "").strip().lower())
-    if not isinstance(entry, dict):
-        if repo_name:
-            print(
-                f"ℹ️  Repo '{repo_name}' not in {config_path.name}; using default.",
-            )
-        entry = lookup.get(DEFAULT_REPO_KEY, {})
-    if not isinstance(entry, dict):
-        return "", ""
-    return str(entry.get("faq_url") or ""), str(entry.get("override_url") or "")
+FAQ_URL = "https://github.com/ROCm/TheRock-PR-Bot/tree/main/docs/ROCM_PR_BOT_FAQ.md"
+OVERRIDE_URL = f"{FAQ_URL}#-wish-to-override-the-policy-process-and-get-unblocked"
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -659,7 +628,6 @@ def build_policy_table_comment(
     marker: str,
     ready: bool = False,
     note: str | None = None,
-    repo_name: str | None = None,
 ) -> str:
     """Render the results as a single Markdown comment with a status table.
 
@@ -689,12 +657,31 @@ def build_policy_table_comment(
     results = sorted(results, key=lambda r: order_index.get(r.name, len(TABLE_ORDER)))
 
     all_passed = all(r.passed for r in results)
+
+    # A row is a REAL failure only when it is not passed, not pending, and not a
+    # WIP/TBE/Warning placeholder. Pending rows (e.g. pre-commit still running)
+    # must NOT be rendered as failures.
+    failing_names = [
+        r.name
+        for r in results
+        if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
+    ]
+    failing_count = len(failing_names)
+    has_pending = any(
+        r.pending and not r.passed and not r.wip and not r.tbe and not r.warn
+        for r in results
+    )
+
     if all_passed and ready:
         heading = "### ✅ All Checks Passed — Ready for Review"
     elif all_passed:
         heading = "### ✅ All Policy Checks Passed"
-    else:
+    elif failing_count:
         heading = "### ❌ PR Check — Action Required"
+    elif has_pending:
+        heading = "### ⏳ PR Check — Waiting on Checks"
+    else:
+        heading = "### ✅ All Policy Checks Passed"
     rows = []
     for r in results:
         if r.warn:
@@ -723,18 +710,7 @@ def build_policy_table_comment(
         rows.append(f"| {r.icon} **{r.name}** | {status} | {detail} |")
 
     table = "| Check | Status | Details |\n" "|---|:---:|---|\n" + "\n".join(rows)
-    # WIP, TBE and Warning rows are neither pass nor fail — exclude from counts.
-    failing_count = sum(
-        1
-        for r in results
-        if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
-    )
-    if not all_passed:
-        failing_names = [
-            r.name
-            for r in results
-            if not r.passed and not r.pending and not r.wip and not r.tbe and not r.warn
-        ]
+    if failing_count:
         failing_list = "\n".join(f"> - ❌ {n}" for n in failing_names)
         footer = (
             f"\n\n> ⚠️ **{failing_count} policy check(s) failed.** "
@@ -744,25 +720,23 @@ def build_policy_table_comment(
             f"> The **`{NOT_READY_LABEL}`** label was added to this PR. Once all "
             "policies pass, the label is removed automatically."
         )
+    elif has_pending:
+        footer = (
+            "\n\n> ⏳ **Waiting on required checks to finish.** "
+            "No policy checks have failed — this table refreshes automatically "
+            "once the pending check(s) complete."
+        )
     elif ready:
         footer = "\n\n> 🎉 All checks passed! This PR is ready for review."
     else:
         footer = "\n\n> 🎉 All policy checks passed!"
 
-    faq_url, override_url = load_repo_links(repo_name)
-
     faq_link = (
-        (
-            "\n\n📖 **Need help?** See the "
-            f"[Policy FAQ]({faq_url}) "
-            "for details on every check and how to fix failures."
-        )
-        if faq_url
-        else ""
+        "\n\n📖 **Need help?** See the "
+        f"[Policy FAQ]({FAQ_URL}) "
+        "for details on every check and how to fix failures."
     )
-    override_link = (
-        f"\n\n🙋 **[Wish to Override Policy?]({override_url})**" if override_url else ""
-    )
+    override_link = f"\n\n🙋 **[Wish to Override Policy?]({OVERRIDE_URL})**"
 
     note_block = f"\n\n{note}" if note else ""
     return (
@@ -964,32 +938,16 @@ def main(argv: list[str] | None = None) -> int:
         default=str(THIS_SCRIPT_DIR / "policy.yml"),
         help="Path to policy.yml (defaults to the file next to this script)",
     )
-    parser.add_argument(
-        "--timeout-seconds",
-        type=int,
-        default=300,
-        help="Max seconds to wait for required checks (e.g. pre-commit) to "
-        "conclude before rendering their last-known state. NEVER fails on "
-        "timeout — it only refreshes the results table.",
-    )
-    parser.add_argument(
-        "--poll-seconds",
-        type=int,
-        default=15,
-        help="Seconds between table refreshes while required checks run.",
-    )
-    parser.add_argument(
-        "--repo_name",
-        default="",
-        help="Calling repo name; key into repo_config.json for FAQ/override "
-        "links. Defaults to the REPO environment variable.",
-    )
+    # NOTE: the bot no longer waits/polls for required checks and therefore can
+    # NEVER fail with "Timed out waiting for required checks". It snapshots the
+    # check-run state ONCE and renders ⏳ Pending rows that refresh via the
+    # check_run:completed trigger. (The old --timeout-seconds/--poll-seconds
+    # args were removed because they were unused and misleading.)
     args = parser.parse_args(argv)
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     owner = os.environ.get("OWNER")
     repo = os.environ.get("REPO")
-    repo_name = (args.repo_name or "").strip() or repo
     pr_number_s = os.environ.get("PR_NUMBER")
     sha = os.environ.get("SHA")
 
@@ -1164,9 +1122,22 @@ def main(argv: list[str] | None = None) -> int:
     # "timeout" failure. They are shown as ⏳ Pending purely for information and
     # are enforced by branch protection (required status checks), not by us.
     runs = get_check_runs(owner=owner, repo=repo, sha=sha, token=token)  # type: ignore[arg-type]
-    _, failing, _ = summarize_required_checks(policy, runs)
+    missing, failing, _ = summarize_required_checks(policy, runs)
 
-    ready = not errors and not failing
+    # A required check is still "pending" when it is MISSING or present but has
+    # no conclusion yet (conclusion is None). The PR is only "ready" when there
+    # are no policy errors, nothing failing, AND nothing still pending —
+    # otherwise the table would flip to ✅ / "Ready for Review" while pre-commit
+    # is still ⏳ Pending. The check_run:completed trigger re-runs this script
+    # when pre-commit finishes, so the table refreshes to the final state.
+    pending_required = bool(missing) or any(
+        isinstance(r, dict)
+        and r.get("name") in policy.required_checks
+        and r.get("conclusion") is None
+        for r in runs
+    )
+
+    ready = not errors and not failing and not pending_required
     combined = results + build_check_results(policy, runs, include_self=ready)
 
     upsert_comment(
@@ -1175,7 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
         pr_number,
         token,  # type: ignore[arg-type]
         marker,
-        build_policy_table_comment(combined, marker, ready=ready, repo_name=repo_name),
+        build_policy_table_comment(combined, marker, ready=ready),
     )
 
     # Label depends ONLY on our own policy (missing JIRA/ISSUE reference),

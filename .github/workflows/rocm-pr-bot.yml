@@ -9,10 +9,6 @@ on:
       skip_keywords:
         required: false
         type: string
-      repo_name:
-        description: "Caller repo name — key into rocm_pr_bot/repo_config.json"
-        required: false
-        type: string
       bot_repository:
         description: "Repo hosting the central bot code"
         required: false
@@ -24,9 +20,9 @@ on:
         type: string
         default: main
     secrets:
-      THEROCK_PR_BOT_APPID:
+      ROCM_PR_BOT_APPID:
         required: false
-      THEROCK_PRBOT_KEY:
+      ROCM_PRBOT_KEY:
         required: false
 
   workflow_dispatch:
@@ -63,26 +59,26 @@ permissions:
 
 # Avoid two runs racing on the same PR's comment/label (e.g. fast pushes).
 concurrency:
-  group: therock-pr-bot-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.event.check_suite.head_sha }}
+  group: rocm-pr-bot-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.event.check_suite.head_sha }}
   cancel-in-progress: true
 
 jobs:
   policy:
-    name: therock-pr-bot
+    name: rocm-pr-bot
     runs-on: ubuntu-24.04
     # Ignore our OWN check_run to avoid a self-trigger loop. When called from
     # another repo the name is "<caller-job> / therock-pr-bot", hence endsWith.
     if: >-
       github.event_name != 'check_run' ||
-      !endsWith(github.event.check_run.name, 'therock-pr-bot')
+      !endsWith(github.event.check_run.name, 'rocm-pr-bot')
 
     steps:
       - name: Detect GitHub App secrets
         id: app-secrets
         shell: bash
         env:
-          APP_ID: ${{ secrets.THEROCK_PR_BOT_APPID }}
-          APP_KEY: ${{ secrets.THEROCK_PRBOT_KEY }}
+          APP_ID: ${{ secrets.ROCM_PR_BOT_APPID }}
+          APP_KEY: ${{ secrets.ROCM_PRBOT_KEY }}
           BOT_REPOSITORY: ${{ inputs.bot_repository || 'ROCm/TheRock-PR-Bot' }}
         run: |
           if [[ -n "$APP_ID" && -n "$APP_KEY" ]]; then
@@ -102,8 +98,8 @@ jobs:
         if: steps.app-secrets.outputs.available == 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v3.2.0
         with:
-          app-id: ${{ secrets.THEROCK_PR_BOT_APPID }}
-          private-key: ${{ secrets.THEROCK_PRBOT_KEY }}
+          app-id: ${{ secrets.ROCM_PR_BOT_APPID }}
+          private-key: ${{ secrets.ROCM_PRBOT_KEY }}
           owner: ${{ steps.app-secrets.outputs.bot_owner }}
           repositories: ${{ steps.app-secrets.outputs.bot_repo }}
           permission-contents: read
@@ -111,7 +107,7 @@ jobs:
       - name: Fail fast if bot repo is unreachable
         if: steps.app-secrets.outputs.available != 'true'
         run: |
-          echo "::error::THEROCK_PR_BOT_APPID/THEROCK_PRBOT_KEY not available." \
+          echo "::error::ROCM_PR_BOT_APPID/ROCM_PRBOT_KEY not available." \
                "Define them in the CALLER repo — secrets in TheRock-PR-Bot are not visible here."
           exit 1
 
@@ -134,8 +130,8 @@ jobs:
         if: steps.app-secrets.outputs.available == 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v3.2.0
         with:
-          app-id: ${{ secrets.THEROCK_PR_BOT_APPID }}
-          private-key: ${{ secrets.THEROCK_PRBOT_KEY }}
+          app-id: ${{ secrets.ROCM_PR_BOT_APPID }}
+          private-key: ${{ secrets.ROCM_PRBOT_KEY }}
           # Scope the token to the minimum the bot needs instead of inheriting
           # the full installation permissions:
           #   pull-requests: write -> post / update the results table comment
@@ -162,6 +158,4 @@ jobs:
           REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha || github.event.check_run.head_sha }}
-          REPO_NAME: ${{ inputs.repo_name || github.event.repository.name }}
-        run: python policy_check.py --repo_name "$REPO_NAME"
-
+        run: python policy_check.py
