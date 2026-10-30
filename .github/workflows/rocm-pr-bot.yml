@@ -42,11 +42,15 @@ on:
     branches: [main , develop]
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
-  # Re-run when another check finishes so the results table flips from
-  # ⏳ Pending to ✅/❌ — without the bot ever waiting or polling. `check_run`
-  # fires reliably once per check (unlike check_suite, whose PR list is often
-  # empty); the script resolves the PR number from the commit SHA.
-  check_run:
+  # Re-run when the required check workflow finishes so the results table flips
+  # from ⏳ Pending to ✅/❌ — without the bot ever waiting or polling. We use
+  # `workflow_run` (NOT `check_run`): GitHub deliberately suppresses `check_run`
+  # re-triggers for checks created by Actions' GITHUB_TOKEN (recursion guard),
+  # so the table would otherwise stay ⏳ until a human pushes/edits the PR.
+  # `workflow_run` is not suppressed; the script resolves the PR from the head
+  # SHA. The watched name must match the pre-commit workflow's `name:`.
+  workflow_run:
+    workflows: ["pre-commit"]
     types: [completed]
 
 # Least privilege. Writes are needed to post the results comment and manage the
@@ -61,18 +65,19 @@ permissions:
 # Use a distinct prefix from the caller workflow to prevent a concurrency
 # deadlock — GitHub kills both if caller and callee share the same group name.
 concurrency:
-  group: rocm-pr-bot-callee-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.event.check_suite.head_sha }}
+  group: rocm-pr-bot-callee-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 jobs:
   policy:
     name: rocm-pr-bot
     runs-on: ubuntu-24.04
-    # Ignore our OWN check_run to avoid a self-trigger loop. When called from
-    # another repo the name is "<caller-job> / therock-pr-bot", hence endsWith.
+    # On workflow_run, only refresh for pre-commit runs tied to a PR. Push-to-
+    # main pre-commit runs have no PR; the bot resolves the PR from the head SHA
+    # and exits cleanly when none exists, so this just avoids a no-op job.
     if: >-
-      github.event_name != 'check_run' ||
-      !endsWith(github.event.check_run.name, 'rocm-pr-bot')
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.event == 'pull_request'
 
     steps:
       - name: Detect GitHub App secrets
@@ -159,5 +164,5 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          SHA: ${{ github.event.pull_request.head.sha || github.event.check_run.head_sha }}
+          SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
         run: python policy_check.py
