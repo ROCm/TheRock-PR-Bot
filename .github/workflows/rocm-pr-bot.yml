@@ -58,8 +58,10 @@ permissions:
   checks: read
 
 # Avoid two runs racing on the same PR's comment/label (e.g. fast pushes).
+# Use a distinct prefix from the caller workflow to prevent a concurrency
+# deadlock — GitHub kills both if caller and callee share the same group name.
 concurrency:
-  group: rocm-pr-bot-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.event.check_suite.head_sha }}
+  group: rocm-pr-bot-callee-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.event.check_suite.head_sha }}
   cancel-in-progress: true
 
 jobs:
