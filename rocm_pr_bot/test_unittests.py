@@ -639,6 +639,141 @@ class RequiredCheckTests(unittest.TestCase):
         self.assertEqual(failing, [])
 
 
+# ---------------- pre-commit resolution by workflow FILE PATH ----------------
+
+
+class PrecommitPathResolutionTests(unittest.TestCase):
+    """Cover resolve_precommit_row — the file-path-based pre-commit row.
+
+    The row is driven by the pre-commit WORKFLOW (matched by its file path
+    `.github/workflows/pre-commit.yml`), NOT by any check-run/job/workflow name.
+    This makes it work identically whether a repo names its check "pre-commit",
+    "Pre-commit", or "Run hooks", and handles repos with no pre-commit at all.
+
+    gh_get is mocked. The helpers hit three endpoints in order:
+      1. /actions/workflows            -> find the workflow id by path
+      2. /actions/workflows/{id}/runs  -> latest run for the head sha
+    We route the mock by URL substring.
+    """
+
+    def _mock_gh_get(
+        self,
+        *,
+        workflows_pages: list[list[dict[str, Any]]] | None = None,
+        run: dict[str, Any] | None = None,
+        runs_list: list[dict[str, Any]] | None = None,
+    ):
+        """Return a gh_get side_effect that answers by endpoint.
+
+        workflows_pages: successive pages for /actions/workflows (for pagination).
+        run / runs_list: the /runs payload (single run convenience or explicit list).
+        """
+        pages = list(workflows_pages or [])
+
+        def _side_effect(url: str, token: str) -> Any:
+            if "/actions/workflows/" in url and "/runs" in url:
+                wr = runs_list if runs_list is not None else ([run] if run else [])
+                return {"workflow_runs": wr}
+            if "/actions/workflows" in url:
+                page = pages.pop(0) if pages else []
+                return {"workflows": page}
+            raise AssertionError(f"unexpected URL: {url}")
+
+        return _side_effect
+
+    def _resolve(self, side_effect) -> pc.CheckResult:
+        with mock.patch.object(pc, "gh_get", side_effect=side_effect):
+            return pc.resolve_precommit_row("o", "r", "deadbeef", "tok")
+
+    def test_no_workflow_is_not_applicable(self) -> None:
+        # Repo has no pre-commit workflow file (e.g. rocm-systems) -> Pass + note.
+        side = self._mock_gh_get(
+            workflows_pages=[[{"id": 1, "path": ".github/workflows/other.yml"}]]
+        )
+        row = self._resolve(side)
+        self.assertEqual(row.name, "pre-commit")
+        self.assertTrue(row.passed)
+        self.assertFalse(row.pending)
+        self.assertIsNotNone(row.note)
+        self.assertIn("Not applicable", row.note or "")
+
+    def test_workflow_found_but_no_run_is_pending(self) -> None:
+        side = self._mock_gh_get(
+            workflows_pages=[
+                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
+            ],
+            runs_list=[],
+        )
+        row = self._resolve(side)
+        self.assertTrue(row.pending)
+        self.assertFalse(row.passed)
+
+    def test_run_in_progress_is_pending(self) -> None:
+        side = self._mock_gh_get(
+            workflows_pages=[
+                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
+            ],
+            run={"status": "in_progress", "conclusion": None},
+        )
+        row = self._resolve(side)
+        self.assertTrue(row.pending)
+
+    def test_completed_success_passes(self) -> None:
+        side = self._mock_gh_get(
+            workflows_pages=[
+                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
+            ],
+            run={"status": "completed", "conclusion": "success"},
+        )
+        row = self._resolve(side)
+        self.assertTrue(row.passed)
+        self.assertFalse(row.pending)
+
+    def test_completed_failure_fails(self) -> None:
+        side = self._mock_gh_get(
+            workflows_pages=[
+                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
+            ],
+            run={"status": "completed", "conclusion": "failure"},
+        )
+        row = self._resolve(side)
+        self.assertFalse(row.passed)
+        self.assertFalse(row.pending)
+        self.assertTrue(any("failure" in d for d in row.details))
+
+    def test_name_agnostic_match_on_path(self) -> None:
+        # Even if the workflow's human name differs ("Pre-commit") the match is
+        # purely on file path, so a green run still passes.
+        side = self._mock_gh_get(
+            workflows_pages=[
+                [
+                    {
+                        "id": 9,
+                        "name": "Pre-commit",
+                        "path": ".github/workflows/pre-commit.yml",
+                    }
+                ]
+            ],
+            run={"status": "completed", "conclusion": "success"},
+        )
+        row = self._resolve(side)
+        self.assertTrue(row.passed)
+
+    def test_workflow_found_on_second_page(self) -> None:
+        # Repos with 100+ workflows (e.g. rocm-systems) must paginate: the first
+        # full page of 100 misses pre-commit; it is found on page 2.
+        page1 = [
+            {"id": i, "path": f".github/workflows/w{i}.yml"} for i in range(100)
+        ]
+        page2 = [{"id": 999, "path": ".github/workflows/pre-commit.yml"}]
+        side = self._mock_gh_get(
+            workflows_pages=[page1, page2],
+            run={"status": "completed", "conclusion": "success"},
+        )
+        row = self._resolve(side)
+        self.assertTrue(row.passed)
+
+
 class BuildCheckResultRowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = make_policy(required_checks=["pre-commit"])
