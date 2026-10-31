@@ -71,7 +71,6 @@ permissions:
   pull-requests: write   # post / update the policy results table comment
   issues: write          # add / remove the "Not ready to Review" label
   checks: read
-  actions: read          # read the pre-commit WORKFLOW run via the Actions API
 
 # Avoid two runs racing on the same PR's comment/label (e.g. fast pushes).
 # Use a distinct prefix from the caller workflow to prevent a concurrency
@@ -160,12 +159,11 @@ jobs:
           #   checks: read         -> read required check-run conclusions
           permission-pull-requests: write
           permission-issues: write
+          # contents:read -> detect whether .github/workflows/pre-commit.yml
+          #                  exists (is pre-commit applicable to this repo?)
           permission-contents: read
+          # checks:read   -> read the pre-commit check-run's pass/fail/pending
           permission-checks: read
-          # Read the pre-commit WORKFLOW run (status/conclusion) via the Actions
-          # API. The bot matches pre-commit by its workflow FILE PATH, which is
-          # stable across repos even when the workflow/job names differ.
-          permission-actions: read
 
       # SECURITY: only fixed, trusted dependencies — never installed from the PR.
       - name: Install deps

@@ -293,95 +293,75 @@ def get_check_runs(owner: str, repo: str, sha: str, token: str) -> list[dict[str
     return runs if isinstance(runs, list) else []
 
 
-# The pre-commit CI workflow is matched by its FILE PATH, not by the workflow's
-# `name:` or the job's `name:`. Across repos those names vary ("pre-commit" vs
-# "Pre-commit" vs a job named "Run hooks"), but the file path is stable, so this
-# is the only reliable key. A repo with no such file simply has no pre-commit CI
-# and the bot marks the row "Not applicable".
+# Whether the repo RUNS pre-commit in CI is decided by the presence of this
+# workflow FILE. The file path is stable across repos even though the workflow
+# and job NAMES vary. A repo with no such file (e.g. rocm-systems) has no
+# pre-commit CI → the bot shows a "Not applicable" row.
 PRECOMMIT_WORKFLOW_PATH = ".github/workflows/pre-commit.yml"
+
+# Built-in candidate CHECK-RUN names for pre-commit. The Check Runs API exposes
+# a check's NAME (the job-level `name:`), not its workflow file path, so we match
+# by name. These cover every ROCm repo today:
+#   • "pre-commit" — the job has no `name:`, so GitHub names the check after the
+#     job id `pre-commit` (rocm-libraries, therock-ci-config, TheRock-Infra).
+#   • "Run hooks"  — TheRock-PR-Bot's job sets `name: Run hooks`.
+# A repo whose check uses some OTHER name can add it via the caller's
+# `required_check_runs` input (merged in below) with no code change.
+PRECOMMIT_CHECK_NAME_CANDIDATES = ["pre-commit", "Run hooks"]
 
 # Conclusions we treat as a GREEN pre-commit.
 _PRECOMMIT_OK = {"success", "neutral", "skipped"}
 
 
-def find_precommit_workflow_id(owner: str, repo: str, token: str) -> int | None:
-    """Return the id of the repo's pre-commit workflow, matched by file PATH.
+def repo_has_precommit_workflow(owner: str, repo: str, token: str) -> bool:
+    """Return True if the repo contains .github/workflows/pre-commit.yml.
 
-    Walks GET /actions/workflows (paginated — some repos have 100+ workflows)
-    and returns the id of the workflow whose `path` is PRECOMMIT_WORKFLOW_PATH.
-    Returns None when the repo has no pre-commit workflow file at all (that repo
-    does not run pre-commit in CI → the bot shows a "Not applicable" row).
+    Uses the Contents API (needs only `contents: read`, which the bot already
+    has — NO `actions: read` required). A 404 from the Contents API means the
+    file is absent → the repo does not run pre-commit → "Not applicable" row.
     """
-    page = 1
-    while True:
-        data = gh_get(
-            f"https://api.github.com/repos/{owner}/{repo}/actions/workflows"
-            f"?per_page=100&page={page}",
-            token,
-        )
-        if not isinstance(data, dict):
-            return None
-        workflows = data.get("workflows")
-        if not isinstance(workflows, list) or not workflows:
-            return None
-        for wf in workflows:
-            if not isinstance(wf, dict):
-                continue
-            path = str(wf.get("path") or "")
-            # Match on the trailing path so it works regardless of any leading
-            # segments the API might include.
-            if path == PRECOMMIT_WORKFLOW_PATH or path.endswith(
-                "/" + PRECOMMIT_WORKFLOW_PATH
-            ):
-                wid = wf.get("id")
-                return int(wid) if isinstance(wid, int) else None
-        # The API caps total_count-based paging; stop once a short page returns.
-        if len(workflows) < 100:
-            return None
-        page += 1
-
-
-def get_latest_precommit_run(
-    owner: str, repo: str, workflow_id: int, sha: str, token: str
-) -> dict[str, Any] | None:
-    """Return the most recent run of `workflow_id` for commit `sha`, or None.
-
-    Uses the workflow-scoped runs endpoint filtered by head_sha so we read the
-    pre-commit run's status/conclusion directly — independent of how the job or
-    workflow is NAMED. None means the workflow exists but has not (yet) run for
-    this commit.
-    """
-    data = gh_get(
-        f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/"
-        f"{workflow_id}/runs?head_sha={sha}&per_page=100",
-        token,
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}/contents/"
+        f"{urllib.parse.quote(PRECOMMIT_WORKFLOW_PATH)}"
     )
-    if not isinstance(data, dict):
-        return None
-    runs = data.get("workflow_runs")
-    if not isinstance(runs, list) or not runs:
-        return None
-    # The API returns newest first; pick the newest valid dict.
-    for run in runs:
-        if isinstance(run, dict):
-            return run
-    return None
+    r = requests.get(url, headers=gh_headers(token), timeout=30)
+    if r.status_code == 404:
+        return False
+    if r.status_code >= 300:
+        # Any other error: be conservative and assume it COULD apply, so we fall
+        # through to the check-runs lookup rather than silently hiding the row.
+        print(
+            f"⚠️  Could not stat {PRECOMMIT_WORKFLOW_PATH} "
+            f"({r.status_code}); assuming pre-commit may apply.",
+            file=sys.stderr,
+        )
+        return True
+    return True
 
 
-def resolve_precommit_row(owner: str, repo: str, sha: str, token: str) -> CheckResult:
-    """Build the single pre-commit results-table row by FILE-PATH discovery.
+def resolve_precommit_row(
+    owner: str,
+    repo: str,
+    sha: str,
+    token: str,
+    check_runs: list[dict[str, Any]],
+    extra_names: Iterable[str] = (),
+) -> CheckResult:
+    """Build the single pre-commit results-table row.
 
-    Four outcomes:
+    Data sources (both already permitted — no `actions: read`):
+      • Contents API → is .github/workflows/pre-commit.yml present?
+      • Check Runs API (passed in as `check_runs`) → the pre-commit check's
+        pass/fail/pending, matched by NAME against the candidate set plus any
+        caller-supplied `required_check_runs`.
+
+    Outcomes:
       • no pre-commit workflow file → ✅ Pass, "Not applicable" (e.g. rocm-systems)
-      • workflow exists, no run yet / still running → ⏳ Pending
-      • run concluded green → ✅ Pass
-      • run concluded not-green → ❌ Fail (with the conclusion)
-
-    This replaces check-RUN name matching, so it works identically whether the
-    repo names its check "pre-commit", "Pre-commit", or "Run hooks".
+      • file present, no matching check-run yet / still running → ⏳ Pending
+      • matching check-run concluded green → ✅ Pass
+      • matching check-run concluded not-green → ❌ Fail (with the conclusion)
     """
-    workflow_id = find_precommit_workflow_id(owner, repo, token)
-    if workflow_id is None:
+    if not repo_has_precommit_workflow(owner, repo, token):
         return CheckResult(
             name="pre-commit",
             icon="🔎",
@@ -390,8 +370,24 @@ def resolve_precommit_row(owner: str, repo: str, sha: str, token: str) -> CheckR
             note="Not applicable — this repo has no pre-commit workflow.",
         )
 
-    run = get_latest_precommit_run(owner, repo, workflow_id, sha, token)
+    # Match the pre-commit check-run by name. Order the candidates so an explicit
+    # caller name wins, then our built-ins. De-dupe while preserving order.
+    names: list[str] = []
+    for n in list(extra_names) + PRECOMMIT_CHECK_NAME_CANDIDATES:
+        if n and n not in names:
+            names.append(n)
+
+    by_name = {
+        r.get("name"): r
+        for r in check_runs
+        if isinstance(r, dict) and isinstance(r.get("name"), str)
+    }
+    run = next((by_name[n] for n in names if n in by_name), None)
+
     if run is None:
+        # The workflow exists but no matching check-run is on the commit yet
+        # (queued, or not reported). Treat as pending; the workflow_run:completed
+        # refresh re-runs this and flips it.
         return CheckResult(
             "pre-commit",
             "🔎",
@@ -400,11 +396,9 @@ def resolve_precommit_row(owner: str, repo: str, sha: str, token: str) -> CheckR
             pending=True,
         )
 
-    status = str(run.get("status") or "")
     conclusion = run.get("conclusion")
-    # status is "queued"/"in_progress"/"completed"; only "completed" has a
-    # trustworthy conclusion. Anything else is still pending.
-    if status != "completed" or conclusion is None:
+    # conclusion is None until the check-run completes.
+    if conclusion is None:
         return CheckResult(
             "pre-commit",
             "🔎",
@@ -1267,14 +1261,18 @@ def main(argv: list[str] | None = None) -> int:
     errors = [d for r in results for d in r.details if not r.warn]
     marker = "<!-- therock-pr-bot-policy-check -->"
 
-    # Resolve the pre-commit row by WORKFLOW FILE PATH (.github/workflows/
-    # pre-commit.yml), not by check-run name. This is the only key that is
-    # stable across repos — the workflow/job names vary ("pre-commit" vs
-    # "Pre-commit" vs a job named "Run hooks"), and some repos (e.g. rocm-systems)
-    # have no pre-commit workflow at all. We do NOT wait/poll: we snapshot the
-    # run's state once and render it. The caller's workflow_run:completed trigger
-    # re-runs this script when pre-commit finishes so the row refreshes to ✅/❌.
-    precommit_row = resolve_precommit_row(owner, repo, sha, token)  # type: ignore[arg-type]
+    # Resolve the single pre-commit row using ONLY already-granted permissions:
+    #   • contents:read → is .github/workflows/pre-commit.yml present? (decides
+    #     "Not applicable" for repos like rocm-systems that have no pre-commit)
+    #   • checks:read   → the pre-commit check-run's pass/fail/pending, matched by
+    #     NAME against the built-in candidates plus any caller `required_checks`.
+    # No `actions: read` is needed. We do NOT wait/poll: we snapshot the check
+    # state once; the caller's workflow_run:completed trigger re-runs this script
+    # when pre-commit finishes so the row refreshes to ✅/❌.
+    runs = get_check_runs(owner=owner, repo=repo, sha=sha, token=token)  # type: ignore[arg-type]
+    precommit_row = resolve_precommit_row(
+        owner, repo, sha, token, runs, extra_names=policy.required_checks  # type: ignore[arg-type]
+    )
 
     # The pre-commit row drives readiness: a real failure blocks "ready", and a
     # still-pending run keeps the table from flipping to ✅/"Ready for Review"
