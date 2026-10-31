@@ -19,6 +19,17 @@ on:
         required: false
         type: string
         default: main
+      required_check_runs:
+        description: >-
+          Comma/newline-separated CHECK-RUN names this bot should track and
+          show in the results table (e.g. "Run hooks"). This is the job-level
+          name: of the check as GitHub reports it, NOT the workflow name. Leave
+          empty in repos that have no such check (e.g. no pre-commit) so no
+          pending row is ever shown. Overrides checks.required_check_runs in
+          the shared policy.yml.
+        required: false
+        type: string
+        default: ""
     secrets:
       ROCM_PR_BOT_APPID:
         required: false
@@ -67,6 +78,7 @@ permissions:
 concurrency:
   group: rocm-pr-bot-callee-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
+
 
 jobs:
   policy:
@@ -165,4 +177,5 @@ jobs:
           REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          REQUIRED_CHECK_RUNS: ${{ inputs.required_check_runs }}
         run: python policy_check.py
