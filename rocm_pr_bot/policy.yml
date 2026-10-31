@@ -149,8 +149,15 @@ diff:
 checks:
   # External checks that must be GREEN before PR is "ready for review"
   # (Do NOT include therock-pr-bot here to avoid circular dependency.)
-  required_check_runs:
-    - pre-commit
+  #
+  # NOTE: these are CHECK-RUN names as GitHub reports them — the job-level
+  # `name:` of the check, NOT the workflow name. This list is SHARED across all
+  # repos that call the bot, and each repo's pre-commit job may be named
+  # differently (e.g. "Run hooks"), while some repos have no pre-commit at all.
+  # Therefore the default here is EMPTY, and each caller supplies its own names
+  # via the `required_check_runs` input in its rocm-pr-bot-scan.yml. An empty
+  # list means no required check-run rows are shown (nothing stuck as Pending).
+  required_check_runs: []
 
   failure_comments:
     pre-commit:

@@ -13,7 +13,7 @@ import re
 import sys
 import urllib.parse
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,27 @@ def _env_flag(name: str, default: bool = True) -> bool:
 # Whether this run may write to the PR (comments / labels).
 CAN_POST_COMMENTS = _env_flag("POST_COMMENTS")
 CAN_MUTATE_PR = _env_flag("MUTATE_PR")
+
+
+def _parse_check_run_names(raw: str | None) -> list[str] | None:
+    """Parse the per-caller REQUIRED_CHECK_RUNS override into a name list.
+
+    The shared policy.yml cannot know each repo's check-RUN name (GitHub reports
+    a check by its job-level `name:`, e.g. "Run hooks", not the workflow name).
+    So the caller workflow passes the names here, comma- or newline-separated,
+    and they OVERRIDE checks.required_check_runs.
+
+    Returns:
+      - None  if the variable is unset (caller opted out of overriding → keep
+        whatever policy.yml specifies).
+      - a list (possibly EMPTY) if the variable is set. An explicit empty value
+        means "this repo has no required check-runs" (e.g. no pre-commit), so no
+        pending row is ever shown.
+    """
+    if raw is None:
+        return None
+    names = [n.strip() for n in re.split(r"[,\n]", raw)]
+    return [n for n in names if n]
 
 # The "Not ready to Review" label is added ONLY when the JIRA/ISSUE ID
 # reference is missing from the PR description (detected in main() via
@@ -994,6 +1015,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             policy_path = (THIS_SCRIPT_DIR / policy_path).resolve()
     policy = load_policy(policy_path)
+
+    # Per-caller override of which CHECK-RUN names to track. policy.yml is shared
+    # across repos and cannot know each one's job-level check name, so the caller
+    # workflow supplies them via REQUIRED_CHECK_RUNS. Unset → keep policy.yml's
+    # list; set (even to empty) → replace it, where empty means "no required
+    # check-runs in this repo" so no permanently-pending row is rendered.
+    override_checks = _parse_check_run_names(os.environ.get("REQUIRED_CHECK_RUNS"))
+    if override_checks is not None:
+        policy = replace(policy, required_checks=override_checks)
 
     pr = get_pr(owner=owner, repo=repo, pr_number=pr_number, token=token)  # type: ignore[arg-type]
     body = str(pr.get("body") or "")
