@@ -517,7 +517,12 @@ class LoadPolicyTests(unittest.TestCase):
         if not policy_path.exists():
             self.skipTest("policy.yml not present next to tests")
         policy = pc.load_policy(policy_path)
-        self.assertIn("pre-commit", policy.required_checks)
+        # required_check_runs is now empty in the SHARED policy.yml by default:
+        # each caller repo supplies its own check-RUN name(s) via the
+        # `required_check_runs` input in rocm-pr-bot-scan.yml (handled in main()
+        # through the REQUIRED_CHECK_RUNS env override). policy.yml no longer
+        # hard-codes "pre-commit" because that name is repo-specific.
+        self.assertEqual(policy.required_checks, [])
         # Title policy has been removed from policy.yml — the description
         # min-length is the meaningful text-length gate now.
         self.assertGreaterEqual(policy.description_min_length, 0)
@@ -660,6 +665,101 @@ class BuildCheckResultRowTests(unittest.TestCase):
     def test_include_self_adds_bot_row(self) -> None:
         rows = pc.build_check_results(self.policy, [], include_self=True)
         self.assertTrue(any(r.name == "therock-pr-bot" for r in rows))
+
+
+# -------------------- per-caller required_check_runs override ----------------
+
+
+class ParseCheckRunNamesTests(unittest.TestCase):
+    """Cover _parse_check_run_names — the per-caller REQUIRED_CHECK_RUNS parser.
+
+    policy.yml is shared across repos and cannot know each repo's job-level
+    check-RUN name (e.g. "Run hooks"), so the caller workflow passes the names
+    via the REQUIRED_CHECK_RUNS env var. Unset → keep policy.yml's list; set
+    (even empty) → override it, where empty means "this repo has no required
+    check-runs" so no permanently-pending row is shown.
+    """
+
+    def test_none_returns_none(self) -> None:
+        # Unset env var → None → caller keeps whatever policy.yml specifies.
+        self.assertIsNone(pc._parse_check_run_names(None))
+
+    def test_empty_string_returns_empty_list(self) -> None:
+        # Explicitly set but empty → [] (NOT None): repo opts out of all
+        # required check-runs. Distinct from None so main() still overrides.
+        for raw in ["", "   ", "\n", " , , \n "]:
+            with self.subTest(raw=repr(raw)):
+                self.assertEqual(pc._parse_check_run_names(raw), [])
+
+    def test_single_name(self) -> None:
+        self.assertEqual(pc._parse_check_run_names("Run hooks"), ["Run hooks"])
+
+    def test_comma_separated(self) -> None:
+        self.assertEqual(
+            pc._parse_check_run_names("Run hooks, lint, build"),
+            ["Run hooks", "lint", "build"],
+        )
+
+    def test_newline_separated(self) -> None:
+        self.assertEqual(
+            pc._parse_check_run_names("Run hooks\nlint\nbuild"),
+            ["Run hooks", "lint", "build"],
+        )
+
+    def test_mixed_separators_and_whitespace(self) -> None:
+        # Commas and newlines mix; surrounding whitespace and blank entries are
+        # stripped. Internal spaces in a check name are preserved ("Run hooks").
+        self.assertEqual(
+            pc._parse_check_run_names("  Run hooks ,\n lint ,\n\n build \n"),
+            ["Run hooks", "lint", "build"],
+        )
+
+
+class RequiredCheckRunsOverrideTests(unittest.TestCase):
+    """Cover how REQUIRED_CHECK_RUNS replaces Policy.required_checks in main().
+
+    main() is integration-heavy (network), so rather than drive it end-to-end we
+    assert the override SEMANTICS on a Policy via dataclasses.replace — the exact
+    operation main() performs when the env var is set.
+    """
+
+    def test_override_replaces_required_checks(self) -> None:
+        policy = make_policy(required_checks=["pre-commit"])
+        names = pc._parse_check_run_names("Run hooks")
+        self.assertIsNotNone(names)
+        overridden = pc.replace(policy, required_checks=names)
+        self.assertEqual(overridden.required_checks, ["Run hooks"])
+        # Original policy is untouched (frozen dataclass → new instance).
+        self.assertEqual(policy.required_checks, ["pre-commit"])
+
+    def test_empty_override_yields_no_required_checks(self) -> None:
+        # A repo with no pre-commit passes "" → [] → no required-check rows, so
+        # nothing is ever stuck as ⏳ Pending.
+        policy = make_policy(required_checks=["pre-commit"])
+        names = pc._parse_check_run_names("")
+        overridden = pc.replace(policy, required_checks=names)
+        self.assertEqual(overridden.required_checks, [])
+        rows = pc.build_check_results(overridden, [])
+        self.assertEqual(rows, [])
+
+    def test_unset_override_keeps_policy_list(self) -> None:
+        # None means "do not override" — main() leaves policy.required_checks
+        # exactly as policy.yml defined it.
+        policy = make_policy(required_checks=["pre-commit"])
+        names = pc._parse_check_run_names(None)
+        self.assertIsNone(names)
+        # main() only calls replace() when names is not None, so the policy is
+        # used as-is here.
+        self.assertEqual(policy.required_checks, ["pre-commit"])
+
+    def test_overridden_name_drives_check_row(self) -> None:
+        # End-to-end-ish: after overriding to "Run hooks", a check-run of that
+        # name flips the row to passed (proving the name match now works).
+        policy = make_policy(required_checks=pc._parse_check_run_names("Run hooks"))
+        runs = [{"name": "Run hooks", "conclusion": "success"}]
+        row = next(r for r in pc.build_check_results(policy, runs) if r.name == "Run hooks")
+        self.assertTrue(row.passed)
+        self.assertFalse(row.pending)
 
 
 # ----------------------------- new tests -------------------------------------
