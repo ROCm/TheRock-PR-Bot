@@ -757,7 +757,9 @@ class RequiredCheckRunsOverrideTests(unittest.TestCase):
         # name flips the row to passed (proving the name match now works).
         policy = make_policy(required_checks=pc._parse_check_run_names("Run hooks"))
         runs = [{"name": "Run hooks", "conclusion": "success"}]
-        row = next(r for r in pc.build_check_results(policy, runs) if r.name == "Run hooks")
+        row = next(
+            r for r in pc.build_check_results(policy, runs) if r.name == "Run hooks"
+        )
         self.assertTrue(row.passed)
         self.assertFalse(row.pending)
 

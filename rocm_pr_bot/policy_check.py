@@ -78,6 +78,7 @@ def _parse_check_run_names(raw: str | None) -> list[str] | None:
     names = [n.strip() for n in re.split(r"[,\n]", raw)]
     return [n for n in names if n]
 
+
 # The "Not ready to Review" label is added ONLY when the JIRA/ISSUE ID
 # reference is missing from the PR description (detected in main() via
 # `jira_issue_failed`). The Unit Test and Forbidden Files checks are
