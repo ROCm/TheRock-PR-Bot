@@ -304,9 +304,7 @@ PRECOMMIT_WORKFLOW_PATH = ".github/workflows/pre-commit.yml"
 _PRECOMMIT_OK = {"success", "neutral", "skipped"}
 
 
-def find_precommit_workflow_id(
-    owner: str, repo: str, token: str
-) -> int | None:
+def find_precommit_workflow_id(owner: str, repo: str, token: str) -> int | None:
     """Return the id of the repo's pre-commit workflow, matched by file PATH.
 
     Walks GET /actions/workflows (paginated — some repos have 100+ workflows)
@@ -370,9 +368,7 @@ def get_latest_precommit_run(
     return None
 
 
-def resolve_precommit_row(
-    owner: str, repo: str, sha: str, token: str
-) -> CheckResult:
+def resolve_precommit_row(owner: str, repo: str, sha: str, token: str) -> CheckResult:
     """Build the single pre-commit results-table row by FILE-PATH discovery.
 
     Four outcomes:
@@ -397,7 +393,11 @@ def resolve_precommit_row(
     run = get_latest_precommit_run(owner, repo, workflow_id, sha, token)
     if run is None:
         return CheckResult(
-            "pre-commit", "🔎", passed=False, details=["⏳ Still running…"], pending=True
+            "pre-commit",
+            "🔎",
+            passed=False,
+            details=["⏳ Still running…"],
+            pending=True,
         )
 
     status = str(run.get("status") or "")
@@ -406,7 +406,11 @@ def resolve_precommit_row(
     # trustworthy conclusion. Anything else is still pending.
     if status != "completed" or conclusion is None:
         return CheckResult(
-            "pre-commit", "🔎", passed=False, details=["⏳ Still running…"], pending=True
+            "pre-commit",
+            "🔎",
+            passed=False,
+            details=["⏳ Still running…"],
+            pending=True,
         )
 
     if str(conclusion) in _PRECOMMIT_OK:

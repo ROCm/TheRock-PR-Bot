@@ -699,9 +699,7 @@ class PrecommitPathResolutionTests(unittest.TestCase):
 
     def test_workflow_found_but_no_run_is_pending(self) -> None:
         side = self._mock_gh_get(
-            workflows_pages=[
-                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
-            ],
+            workflows_pages=[[{"id": 7, "path": ".github/workflows/pre-commit.yml"}]],
             runs_list=[],
         )
         row = self._resolve(side)
@@ -710,9 +708,7 @@ class PrecommitPathResolutionTests(unittest.TestCase):
 
     def test_run_in_progress_is_pending(self) -> None:
         side = self._mock_gh_get(
-            workflows_pages=[
-                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
-            ],
+            workflows_pages=[[{"id": 7, "path": ".github/workflows/pre-commit.yml"}]],
             run={"status": "in_progress", "conclusion": None},
         )
         row = self._resolve(side)
@@ -720,9 +716,7 @@ class PrecommitPathResolutionTests(unittest.TestCase):
 
     def test_completed_success_passes(self) -> None:
         side = self._mock_gh_get(
-            workflows_pages=[
-                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
-            ],
+            workflows_pages=[[{"id": 7, "path": ".github/workflows/pre-commit.yml"}]],
             run={"status": "completed", "conclusion": "success"},
         )
         row = self._resolve(side)
@@ -731,9 +725,7 @@ class PrecommitPathResolutionTests(unittest.TestCase):
 
     def test_completed_failure_fails(self) -> None:
         side = self._mock_gh_get(
-            workflows_pages=[
-                [{"id": 7, "path": ".github/workflows/pre-commit.yml"}]
-            ],
+            workflows_pages=[[{"id": 7, "path": ".github/workflows/pre-commit.yml"}]],
             run={"status": "completed", "conclusion": "failure"},
         )
         row = self._resolve(side)
@@ -762,9 +754,7 @@ class PrecommitPathResolutionTests(unittest.TestCase):
     def test_workflow_found_on_second_page(self) -> None:
         # Repos with 100+ workflows (e.g. rocm-systems) must paginate: the first
         # full page of 100 misses pre-commit; it is found on page 2.
-        page1 = [
-            {"id": i, "path": f".github/workflows/w{i}.yml"} for i in range(100)
-        ]
+        page1 = [{"id": i, "path": f".github/workflows/w{i}.yml"} for i in range(100)]
         page2 = [{"id": 999, "path": ".github/workflows/pre-commit.yml"}]
         side = self._mock_gh_get(
             workflows_pages=[page1, page2],
