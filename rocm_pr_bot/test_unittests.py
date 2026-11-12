@@ -951,7 +951,9 @@ class NewPolicyCheckTests(unittest.TestCase):
         # is PR Description -> Forbidden Files -> Unit Test.
         results = [
             pc.CheckResult("Unit Test", "🧪", passed=True, details=[]),
-            pc.CheckResult("Forbidden Files", "⛔", passed=False, details=[], warn=True),
+            pc.CheckResult(
+                "Forbidden Files", "⛔", passed=False, details=[], warn=True
+            ),
             pc.CheckResult("PR Description", "📜", passed=True, details=[]),
         ]
         marker = "<!-- t -->"
@@ -960,14 +962,14 @@ class NewPolicyCheckTests(unittest.TestCase):
         # Check order: PR Description -> Forbidden Files -> Unit Test.
         # Compile with DOTALL so '.*' spans the newlines between table rows
         # (assertRegex has no flags argument).
-        order_re = re.compile(
-            r"PR Description.*Forbidden Files.*Unit Test", re.DOTALL
-        )
+        order_re = re.compile(r"PR Description.*Forbidden Files.*Unit Test", re.DOTALL)
         self.assertRegex(body, order_re)
 
     def test_table_rendering_pending(self) -> None:
         # Test rendering of a pending check in the policy table.
-        result = pc.CheckResult("Unit Test", "🧪", passed=True, details=[], pending=True)
+        result = pc.CheckResult(
+            "Unit Test", "🧪", passed=True, details=[], pending=True
+        )
         marker = "<!-- test -->"
         body = pc.build_policy_table_comment([result], marker, ready=True)
 
