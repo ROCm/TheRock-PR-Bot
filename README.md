@@ -40,11 +40,11 @@ calls it from its own workflow, and the bot:
 
 1. Reads all pull request data through the GitHub REST API (it never checks out
    or executes PR head code).
-2. Loads the shared [`policy.yml`](rocm_pr_bot/policy.yml) and evaluates each
+1. Loads the shared [`policy.yml`](rocm_pr_bot/policy.yml) and evaluates each
    policy in [`policy_check.py`](rocm_pr_bot/policy_check.py).
-3. Snapshots the state of required check-runs (such as `pre-commit`) and renders
+1. Snapshots the state of required check-runs (such as `pre-commit`) and renders
    them as Pass / Fail / Pending rows, without ever waiting or polling.
-4. Posts or updates one results-table comment and adds/removes the
+1. Posts or updates one results-table comment and adds/removes the
    `Not ready to Review` label.
 
 The table refreshes automatically when a tracked CI workflow completes, via a
