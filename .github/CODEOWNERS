@@ -10,9 +10,6 @@
 /.github/CODEOWNERS     @ROCm/rocm-security-gh-admins
 #
 # These owners will be the default owners for everything in
-# the repo. Unless a later match takes precedence,
-# @ROCm/rocm-security-gh-admins will be requested for
-# review when someone opens a pull request.
-* 	@ROCm/rocm-security-gh-admins
-#
-* @amd-shiraz
+# the repo. Unless a later match takes precedence, they will
+# be requested for review when someone opens a pull request.
+* @ROCm/rocm-security-gh-admins @amd-shiraz
