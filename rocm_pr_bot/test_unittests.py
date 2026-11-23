@@ -1,3 +1,5 @@
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
 """
 Unit + integration tests for policy_check.py.
 

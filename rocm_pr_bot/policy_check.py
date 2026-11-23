@@ -1,3 +1,5 @@
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
 """
 Main script to policy-check PRs and report results in a comment. This is the
 core of the bot's logic: it loads policy.yml, validates the pull request
