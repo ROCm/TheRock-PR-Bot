@@ -7,9 +7,9 @@
 #
 #
 # This file itself
-/.github/CODEOWNERS     @ROCm/rocm-security-gh-admins
+/.github/CODEOWNERS     @samathew121 @amd-shiraz
 #
 # These owners will be the default owners for everything in
 # the repo. Unless a later match takes precedence, they will
 # be requested for review when someone opens a pull request.
-* @ROCm/rocm-security-gh-admins @amd-shiraz
+* @samathew121 @amd-shiraz
